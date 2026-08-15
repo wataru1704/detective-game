@@ -16,11 +16,38 @@
     color: #f0c14b; font-family: sans-serif; font-size: 13px;
     background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px;
   }
+  #touch3d {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 10;
+    display: grid;
+    grid-template-columns: repeat(3, 56px);
+    grid-template-rows: repeat(3, 48px);
+    gap: 6px;
+  }
+  .btn3d {
+    background: rgba(38,42,51,0.8);
+    color: #e8e6df;
+    border: 1px solid rgba(61,66,80,0.9);
+    border-radius: 8px;
+    font-size: 1.1rem;
+    touch-action: none;
+    user-select: none;
+  }
+  .t-up { grid-column: 2; grid-row: 1; }
+  .t-left { grid-column: 1; grid-row: 2; }
+  .t-right { grid-column: 3; grid-row: 2; }
+  .t-down { grid-column: 2; grid-row: 3; }
 </style>
 </head>
 <body>
 <div id="info">矢印キー / WASD で移動（3D試作・箱だけの街）</div>
 <div id="fps">--- fps</div>
+<div id="touch3d">
+  <button class="btn3d t-up" data-key="ArrowUp">↑</button>
+  <button class="btn3d t-left" data-key="ArrowLeft">←</button>
+  <button class="btn3d t-right" data-key="ArrowRight">→</button>
+  <button class="btn3d t-down" data-key="ArrowDown">↓</button>
+</div>
 <script type="module" src="js/3d-test.js"></script>
 </body>
 </html>

@@ -93,6 +93,19 @@ const keys = {};
 document.addEventListener("keydown", (e) => (keys[e.key] = true));
 document.addEventListener("keyup", (e) => (keys[e.key] = false));
 
+// スマホ用タッチボタン
+document.querySelectorAll(".btn3d[data-key]").forEach((btn) => {
+  const key = btn.dataset.key;
+  const press = (e) => { e.preventDefault(); keys[key] = true; };
+  const release = (e) => { e.preventDefault(); keys[key] = false; };
+  btn.addEventListener("touchstart", press, { passive: false });
+  btn.addEventListener("touchend", release, { passive: false });
+  btn.addEventListener("touchcancel", release, { passive: false });
+  btn.addEventListener("mousedown", press);
+  btn.addEventListener("mouseup", release);
+  btn.addEventListener("mouseleave", release);
+});
+
 function updatePlayer(dt) {
   let dx = 0;
   let dz = 0;
