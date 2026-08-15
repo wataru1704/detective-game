@@ -106,6 +106,25 @@ document.querySelectorAll(".btn3d[data-key]").forEach((btn) => {
   btn.addEventListener("mouseleave", release);
 });
 
+// ---------- 視点回転（画面ドラッグ、ボタン部分は除く） ----------
+let cameraYaw = 0;
+const YAW_SENSITIVITY = 0.008;
+let dragging = false;
+let lastPointerX = 0;
+
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  lastPointerX = e.clientX;
+});
+window.addEventListener("pointermove", (e) => {
+  if (!dragging) return;
+  const deltaX = e.clientX - lastPointerX;
+  lastPointerX = e.clientX;
+  cameraYaw -= deltaX * YAW_SENSITIVITY;
+});
+window.addEventListener("pointerup", () => { dragging = false; });
+window.addEventListener("pointercancel", () => { dragging = false; });
+
 function updatePlayer(dt) {
   let dx = 0;
   let dz = 0;
@@ -125,10 +144,14 @@ function updatePlayer(dt) {
   if (!isBlocked(p.x, p.z + dz)) p.z += dz;
 }
 
-// ---------- 追従カメラ（斜め後ろから） ----------
+// ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
+const CAMERA_DIST = 9;
+const CAMERA_HEIGHT = 6;
 function updateCamera() {
   const p = player.position;
-  camera.position.set(p.x, p.y + 6, p.z + 9);
+  const offsetX = Math.sin(cameraYaw) * CAMERA_DIST;
+  const offsetZ = Math.cos(cameraYaw) * CAMERA_DIST;
+  camera.position.set(p.x + offsetX, p.y + CAMERA_HEIGHT, p.z + offsetZ);
   camera.lookAt(p.x, p.y, p.z);
 }
 
