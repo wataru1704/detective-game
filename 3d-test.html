@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D試作（箱だけの街）</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05060a; }
+  #info {
+    position: fixed; top: 10px; left: 10px; z-index: 10;
+    color: #e8e6df; font-family: sans-serif; font-size: 13px;
+    background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px;
+  }
+  #fps {
+    position: fixed; top: 10px; right: 10px; z-index: 10;
+    color: #f0c14b; font-family: sans-serif; font-size: 13px;
+    background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px;
+  }
+</style>
+</head>
+<body>
+<div id="info">矢印キー / WASD で移動（3D試作・箱だけの街）</div>
+<div id="fps">--- fps</div>
+<script type="module" src="js/3d-test.js"></script>
+</body>
+</html>
