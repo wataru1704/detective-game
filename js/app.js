@@ -146,18 +146,48 @@ function collectClue(spot) {
   log.appendChild(line);
 }
 
+function tryInteract() {
+  if (state.nearSpotId) {
+    const spot = SPOTS.find((s) => s.id === state.nearSpotId);
+    collectClue(spot);
+  }
+}
+
 document.addEventListener("keydown", (e) => {
   state.keys[e.key] = true;
   if (e.key === "z" || e.key === "Z" || e.key === "Enter") {
-    if (state.nearSpotId) {
-      const spot = SPOTS.find((s) => s.id === state.nearSpotId);
-      collectClue(spot);
-    }
+    tryInteract();
   }
 });
 document.addEventListener("keyup", (e) => {
   state.keys[e.key] = false;
 });
+
+// ---------- スマホ用タッチ操作 ----------
+document.querySelectorAll(".btn-touch[data-key]").forEach((btn) => {
+  const key = btn.dataset.key;
+  const press = (e) => {
+    e.preventDefault();
+    state.keys[key] = true;
+  };
+  const release = (e) => {
+    e.preventDefault();
+    state.keys[key] = false;
+  };
+  btn.addEventListener("touchstart", press, { passive: false });
+  btn.addEventListener("touchend", release, { passive: false });
+  btn.addEventListener("touchcancel", release, { passive: false });
+  // PCでのマウス操作でも一応動くようにしておく
+  btn.addEventListener("mousedown", press);
+  btn.addEventListener("mouseup", release);
+  btn.addEventListener("mouseleave", release);
+});
+
+document.getElementById("btn-touch-interact").addEventListener("touchstart", (e) => {
+  e.preventDefault();
+  tryInteract();
+});
+document.getElementById("btn-touch-interact").addEventListener("click", tryInteract);
 
 // ---------- 容疑者選択画面 ----------
 function renderSuspects() {

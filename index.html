@@ -25,11 +25,21 @@
       <div class="meter"><div id="meter-fill" class="meter-fill"></div></div>
       <div id="meter-value" class="hud-value">0%</div>
     </div>
-    <p class="scene-desc">矢印キー（またはWASD）で移動。地点に近づいて<b>Zキー</b>で調べろ。</p>
+    <p class="scene-desc">矢印キー（またはWASD、スマホは下のボタン）で移動。地点に近づいて<b>Zキー／調べるボタン</b>で調べろ。</p>
     <div class="map-wrap">
       <canvas id="map-canvas" width="520" height="360"></canvas>
       <div id="map-prompt" class="map-prompt"></div>
     </div>
+
+    <!-- スマホ用タッチ操作 -->
+    <div class="touch-controls">
+      <button class="btn-touch touch-up" data-key="ArrowUp">↑</button>
+      <button class="btn-touch touch-left" data-key="ArrowLeft">←</button>
+      <button class="btn-touch touch-interact" id="btn-touch-interact">調べる</button>
+      <button class="btn-touch touch-right" data-key="ArrowRight">→</button>
+      <button class="btn-touch touch-down" data-key="ArrowDown">↓</button>
+    </div>
+
     <div id="clue-log" class="clue-log"></div>
     <button id="btn-to-suspects" class="btn-primary">容疑者を絞り込む</button>
   </section>

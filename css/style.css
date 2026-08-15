@@ -113,6 +113,40 @@ h2 {
   color: #f0c14b;
   font-weight: bold;
 }
+/* スマホ用タッチ操作 */
+.touch-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  grid-template-rows: repeat(3, 56px);
+  gap: 6px;
+  justify-content: center;
+  margin: 14px 0;
+  user-select: none;
+}
+.btn-touch {
+  background: #262a33;
+  color: #e8e6df;
+  border: 1px solid #3d4250;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  touch-action: none;
+}
+.btn-touch:active {
+  background: #3d4250;
+}
+.touch-up { grid-column: 2; grid-row: 1; }
+.touch-left { grid-column: 1; grid-row: 2; }
+.touch-interact {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: 0.8rem;
+  background: #c94f4f;
+  border-color: #c94f4f;
+}
+.touch-right { grid-column: 3; grid-row: 2; }
+.touch-down { grid-column: 2; grid-row: 3; }
+
 .clue-log {
   display: flex;
   flex-direction: column;
