@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>事件ファイル001（試作）</title>
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="game">
+
+  <!-- スタート画面 -->
+  <section id="screen-start" class="screen active">
+    <h1>事件ファイル 001</h1>
+    <p class="lead">深夜、繁華街で正体不明の怪人による爆破事件が発生した。<br>
+    現場に急行したのは、特別な力を持たない一人の刑事——あなただ。</p>
+    <button id="btn-start" class="btn-primary">捜査を開始する</button>
+  </section>
+
+  <!-- 捜査画面 -->
+  <section id="screen-investigate" class="screen">
+    <div class="hud">
+      <div class="hud-label">解明度</div>
+      <div class="meter"><div id="meter-fill" class="meter-fill"></div></div>
+      <div id="meter-value" class="hud-value">0%</div>
+    </div>
+    <p class="scene-desc">爆破現場周辺。調べられる場所・人物を選んで手がかりを集めろ。</p>
+    <div id="spot-list" class="spot-list"></div>
+    <button id="btn-to-suspects" class="btn-primary">容疑者を絞り込む</button>
+  </section>
+
+  <!-- 容疑者選択画面 -->
+  <section id="screen-suspects" class="screen">
+    <h2>容疑者を選べ</h2>
+    <p class="scene-desc">集めた手がかりから、真犯人だと思う人物を1人選択しろ。</p>
+    <div id="suspect-list" class="suspect-list"></div>
+  </section>
+
+  <!-- 対決画面 -->
+  <section id="screen-confront" class="screen">
+    <h2 id="confront-title">対決</h2>
+    <p id="confront-desc" class="scene-desc"></p>
+    <div class="timing-wrap">
+      <div class="timing-track">
+        <div id="timing-zone" class="timing-zone"></div>
+        <div id="timing-marker" class="timing-marker"></div>
+      </div>
+      <button id="btn-timing" class="btn-primary">タイミングよく確保！</button>
+    </div>
+    <div id="round-result" class="round-result"></div>
+  </section>
+
+  <!-- エンディング画面 -->
+  <section id="screen-ending" class="screen">
+    <h2 id="ending-title"></h2>
+    <p id="ending-text" class="lead"></p>
+    <button id="btn-restart" class="btn-primary">最初からもう一度</button>
+  </section>
+
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

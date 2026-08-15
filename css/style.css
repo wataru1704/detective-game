@@ -1,0 +1,189 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #14161c;
+  color: #e8e6df;
+  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+#game {
+  width: 100%;
+  max-width: 560px;
+}
+
+.screen {
+  display: none;
+}
+.screen.active {
+  display: block;
+}
+
+h1 {
+  font-size: 1.6rem;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid #c94f4f;
+  padding-bottom: 8px;
+}
+
+h2 {
+  font-size: 1.3rem;
+  color: #f0c14b;
+}
+
+.lead {
+  line-height: 1.8;
+  color: #cfcdc4;
+  white-space: pre-line;
+}
+
+.scene-desc {
+  color: #a9a79f;
+  margin-bottom: 16px;
+}
+
+.btn-primary {
+  display: inline-block;
+  margin-top: 16px;
+  padding: 12px 20px;
+  background: #c94f4f;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background: #e05c5c;
+}
+
+/* HUD / メーター */
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.hud-label {
+  font-size: 0.85rem;
+  color: #a9a79f;
+  white-space: nowrap;
+}
+.meter {
+  flex: 1;
+  height: 14px;
+  background: #262a33;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #f0c14b, #c94f4f);
+  transition: width 0.3s ease;
+}
+.hud-value {
+  font-weight: bold;
+  color: #f0c14b;
+  min-width: 42px;
+  text-align: right;
+}
+
+/* 捜査スポット */
+.spot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.spot-item {
+  background: #1c1f27;
+  border: 1px solid #2c303b;
+  border-radius: 8px;
+  padding: 10px;
+}
+.spot-item.visited {
+  border-color: #f0c14b;
+}
+.btn-spot {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: #262a33;
+  color: #e8e6df;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.btn-spot:disabled {
+  background: #1c1f27;
+  color: #7d7b74;
+  cursor: default;
+}
+.spot-result {
+  margin: 8px 2px 0;
+  font-size: 0.9rem;
+  color: #cfcdc4;
+  line-height: 1.6;
+}
+
+/* 容疑者選択 */
+.suspect-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.suspect-item {
+  background: #1c1f27;
+  border: 1px solid #2c303b;
+  border-radius: 8px;
+  padding: 14px;
+}
+.suspect-item h3 {
+  margin: 0 0 6px;
+  color: #f0c14b;
+}
+.suspect-item p {
+  margin: 0;
+  color: #cfcdc4;
+  line-height: 1.6;
+}
+
+/* 対決（タイミングクリック） */
+.timing-wrap {
+  margin-top: 12px;
+}
+.timing-track {
+  position: relative;
+  height: 20px;
+  background: #262a33;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.timing-zone {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(80, 200, 120, 0.5);
+}
+.timing-marker {
+  position: absolute;
+  top: -4px;
+  width: 4px;
+  height: 28px;
+  background: #fff;
+  transform: translateX(-50%);
+}
+.round-result {
+  margin-top: 12px;
+  color: #f0c14b;
+  min-height: 1.4em;
+}
