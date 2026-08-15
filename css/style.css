@@ -95,40 +95,38 @@ h2 {
   text-align: right;
 }
 
-/* 捜査スポット */
-.spot-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 16px;
+/* 捜査マップ */
+.map-wrap {
+  margin-bottom: 12px;
 }
-.spot-item {
-  background: #1c1f27;
+#map-canvas {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  display: block;
   border: 1px solid #2c303b;
   border-radius: 8px;
-  padding: 10px;
 }
-.spot-item.visited {
-  border-color: #f0c14b;
+.map-prompt {
+  margin-top: 8px;
+  min-height: 1.4em;
+  color: #f0c14b;
+  font-weight: bold;
 }
-.btn-spot {
-  width: 100%;
-  text-align: left;
-  padding: 10px 12px;
-  background: #262a33;
-  color: #e8e6df;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-.btn-spot:disabled {
-  background: #1c1f27;
-  color: #7d7b74;
-  cursor: default;
+.clue-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  max-height: 180px;
+  overflow-y: auto;
 }
 .spot-result {
-  margin: 8px 2px 0;
+  margin: 0;
+  padding: 8px 10px;
+  background: #1c1f27;
+  border: 1px solid #2c303b;
+  border-radius: 6px;
   font-size: 0.9rem;
   color: #cfcdc4;
   line-height: 1.6;

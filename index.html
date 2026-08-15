@@ -25,8 +25,12 @@
       <div class="meter"><div id="meter-fill" class="meter-fill"></div></div>
       <div id="meter-value" class="hud-value">0%</div>
     </div>
-    <p class="scene-desc">爆破現場周辺。調べられる場所・人物を選んで手がかりを集めろ。</p>
-    <div id="spot-list" class="spot-list"></div>
+    <p class="scene-desc">矢印キー（またはWASD）で移動。地点に近づいて<b>Zキー</b>で調べろ。</p>
+    <div class="map-wrap">
+      <canvas id="map-canvas" width="520" height="360"></canvas>
+      <div id="map-prompt" class="map-prompt"></div>
+    </div>
+    <div id="clue-log" class="clue-log"></div>
     <button id="btn-to-suspects" class="btn-primary">容疑者を絞り込む</button>
   </section>
 

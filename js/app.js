@@ -9,6 +9,11 @@ const state = {
   confrontSuccess: 0,
   markerAnimId: null,
   markerStartTime: 0,
+  player: { x: MAP_CONFIG.playerStart.x, y: MAP_CONFIG.playerStart.y },
+  keys: {},
+  mapAnimId: null,
+  mapLastTime: 0,
+  nearSpotId: null,
 };
 
 function showScreen(id) {
@@ -21,39 +26,138 @@ function updateMeter() {
   document.getElementById("meter-value").textContent = state.percent + "%";
 }
 
-// ---------- 捜査画面 ----------
-function renderSpots() {
-  const list = document.getElementById("spot-list");
-  list.innerHTML = "";
-  SPOTS.forEach((spot) => {
-    const visited = state.visitedSpotIds.has(spot.id);
-    const item = document.createElement("div");
-    item.className = "spot-item" + (visited ? " visited" : "");
+// ---------- 捜査画面（見下ろしマップ） ----------
+const mapCanvas = document.getElementById("map-canvas");
+const mapCtx = mapCanvas.getContext("2d");
 
-    const btn = document.createElement("button");
-    btn.className = "btn-spot";
-    btn.textContent = spot.label + (visited ? "（調査済み）" : "");
-    btn.disabled = visited;
-    btn.addEventListener("click", () => onSpotClick(spot));
-    item.appendChild(btn);
-
-    if (visited) {
-      const resultText = document.createElement("p");
-      resultText.className = "spot-result";
-      resultText.textContent = spot.result;
-      item.appendChild(resultText);
-    }
-
-    list.appendChild(item);
-  });
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
 
-function onSpotClick(spot) {
+function isBlocked(x, y) {
+  const size = MAP_CONFIG.playerSize;
+  if (x < 0 || y < 0 || x + size > MAP_CONFIG.width || y + size > MAP_CONFIG.height) {
+    return true;
+  }
+  const box = { x, y, w: size, h: size };
+  return MAP_CONFIG.buildings.some((b) => rectsOverlap(box, b));
+}
+
+function updatePlayer(dt) {
+  const speed = MAP_CONFIG.playerSpeed * dt;
+  let dx = 0;
+  let dy = 0;
+  if (state.keys["ArrowUp"] || state.keys["w"]) dy -= speed;
+  if (state.keys["ArrowDown"] || state.keys["s"]) dy += speed;
+  if (state.keys["ArrowLeft"] || state.keys["a"]) dx -= speed;
+  if (state.keys["ArrowRight"] || state.keys["d"]) dx += speed;
+
+  const p = state.player;
+  if (dx !== 0 && !isBlocked(p.x + dx, p.y)) p.x += dx;
+  if (dy !== 0 && !isBlocked(p.x, p.y + dy)) p.y += dy;
+}
+
+function updateNearSpot() {
+  const size = MAP_CONFIG.playerSize;
+  const cx = state.player.x + size / 2;
+  const cy = state.player.y + size / 2;
+  let found = null;
+  SPOTS.forEach((spot) => {
+    if (state.visitedSpotIds.has(spot.id)) return;
+    const dist = Math.hypot(cx - spot.x, cy - spot.y);
+    if (dist <= MAP_CONFIG.interactRadius) found = spot;
+  });
+  state.nearSpotId = found ? found.id : null;
+
+  const prompt = document.getElementById("map-prompt");
+  prompt.textContent = found ? `Zキーで「${found.label}」を調べる` : "";
+}
+
+function drawMap() {
+  const ctx = mapCtx;
+  ctx.clearRect(0, 0, MAP_CONFIG.width, MAP_CONFIG.height);
+
+  // 地面
+  ctx.fillStyle = "#2a2e38";
+  ctx.fillRect(0, 0, MAP_CONFIG.width, MAP_CONFIG.height);
+
+  // 建物
+  ctx.fillStyle = "#3d4250";
+  MAP_CONFIG.buildings.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
+
+  // 調査地点
+  SPOTS.forEach((spot) => {
+    const visited = state.visitedSpotIds.has(spot.id);
+    ctx.beginPath();
+    ctx.arc(spot.x, spot.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = visited ? "#5c5f66" : "#f0c14b";
+    ctx.fill();
+
+    ctx.fillStyle = visited ? "#7d7b74" : "#e8e6df";
+    ctx.font = "11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(spot.label, spot.x, spot.y - 14);
+  });
+
+  // プレイヤー
+  const p = state.player;
+  const size = MAP_CONFIG.playerSize;
+  ctx.fillStyle = "#c94f4f";
+  ctx.fillRect(p.x, p.y, size, size);
+}
+
+function mapLoop(now) {
+  if (!state.mapLastTime) state.mapLastTime = now;
+  const dt = Math.min(0.05, (now - state.mapLastTime) / 1000);
+  state.mapLastTime = now;
+
+  updatePlayer(dt);
+  updateNearSpot();
+  drawMap();
+
+  state.mapAnimId = requestAnimationFrame(mapLoop);
+}
+
+function startMap() {
+  state.player = { x: MAP_CONFIG.playerStart.x, y: MAP_CONFIG.playerStart.y };
+  state.mapLastTime = 0;
+  document.getElementById("clue-log").innerHTML = "";
+  document.getElementById("map-prompt").textContent = "";
+  if (state.mapAnimId) cancelAnimationFrame(state.mapAnimId);
+  state.mapAnimId = requestAnimationFrame(mapLoop);
+}
+
+function stopMap() {
+  if (state.mapAnimId) {
+    cancelAnimationFrame(state.mapAnimId);
+    state.mapAnimId = null;
+  }
+}
+
+function collectClue(spot) {
   state.visitedSpotIds.add(spot.id);
   state.percent = Math.min(100, state.percent + spot.percent);
   updateMeter();
-  renderSpots();
+
+  const log = document.getElementById("clue-log");
+  const line = document.createElement("p");
+  line.className = "spot-result";
+  line.textContent = `【${spot.label}】${spot.result}`;
+  log.appendChild(line);
 }
+
+document.addEventListener("keydown", (e) => {
+  state.keys[e.key] = true;
+  if (e.key === "z" || e.key === "Z" || e.key === "Enter") {
+    if (state.nearSpotId) {
+      const spot = SPOTS.find((s) => s.id === state.nearSpotId);
+      collectClue(spot);
+    }
+  }
+});
+document.addEventListener("keyup", (e) => {
+  state.keys[e.key] = false;
+});
 
 // ---------- 容疑者選択画面 ----------
 function renderSuspects() {
@@ -192,18 +296,19 @@ function resetGame() {
   state.confrontRound = 0;
   state.confrontSuccess = 0;
   stopMarkerLoop();
+  stopMap();
   updateMeter();
-  renderSpots();
   showScreen("screen-start");
 }
 
 document.getElementById("btn-start").addEventListener("click", () => {
   showScreen("screen-investigate");
-  renderSpots();
   updateMeter();
+  startMap();
 });
 
 document.getElementById("btn-to-suspects").addEventListener("click", () => {
+  stopMap();
   renderSuspects();
   showScreen("screen-suspects");
 });
