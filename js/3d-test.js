@@ -126,22 +126,35 @@ window.addEventListener("pointerup", () => { dragging = false; });
 window.addEventListener("pointercancel", () => { dragging = false; });
 
 function updatePlayer(dt) {
-  let dx = 0;
-  let dz = 0;
-  if (keys["ArrowUp"] || keys["w"]) dz -= 1;
-  if (keys["ArrowDown"] || keys["s"]) dz += 1;
-  if (keys["ArrowLeft"] || keys["a"]) dx -= 1;
-  if (keys["ArrowRight"] || keys["d"]) dx += 1;
+  // 「上」＝画面奥（カメラが向いている方向）、「右」＝画面右、になるよう
+  // 入力(forward/strafe)を、視点の回転(cameraYaw)に合わせてワールド座標に変換する
+  let forwardInput = 0;
+  let strafeInput = 0;
+  if (keys["ArrowUp"] || keys["w"]) forwardInput += 1;
+  if (keys["ArrowDown"] || keys["s"]) forwardInput -= 1;
+  if (keys["ArrowRight"] || keys["d"]) strafeInput += 1;
+  if (keys["ArrowLeft"] || keys["a"]) strafeInput -= 1;
 
-  if (dx !== 0 || dz !== 0) {
-    const len = Math.hypot(dx, dz);
-    dx = (dx / len) * PLAYER_SPEED * dt;
-    dz = (dz / len) * PLAYER_SPEED * dt;
-  }
+  if (forwardInput === 0 && strafeInput === 0) return;
+
+  const forwardX = -Math.sin(cameraYaw);
+  const forwardZ = -Math.cos(cameraYaw);
+  const rightX = Math.cos(cameraYaw);
+  const rightZ = -Math.sin(cameraYaw);
+
+  let dx = forwardX * forwardInput + rightX * strafeInput;
+  let dz = forwardZ * forwardInput + rightZ * strafeInput;
+
+  const len = Math.hypot(dx, dz);
+  dx = (dx / len) * PLAYER_SPEED * dt;
+  dz = (dz / len) * PLAYER_SPEED * dt;
 
   const p = player.position;
   if (!isBlocked(p.x + dx, p.z)) p.x += dx;
   if (!isBlocked(p.x, p.z + dz)) p.z += dz;
+
+  // 進んでいる方向にキャラを向ける
+  player.rotation.y = Math.atan2(dx, dz);
 }
 
 // ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
