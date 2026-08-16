@@ -127,15 +127,20 @@ scene.add(ground);
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
-// 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材風）。
+// 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材/銅板風など）。
 // 部位（本体・トリム・ドア）ごとに色を変え、同じ建物の中でも単色べったりにしない
 const materialPresets = [
-  { base: 0x2e333d, trim: 0x363c46, door: 0x181a20 }, // ガラスカーテンウォール
-  { base: 0x4a4038, trim: 0x544a3c, door: 0x2a221c }, // レンガ
+  { base: 0x2e333d, trim: 0x363c46, door: 0x181a20 }, // ガラスカーテンウォール（青灰）
+  { base: 0x233b3f, trim: 0x2c464b, door: 0x141f21 }, // 深緑がかったガラス
+  { base: 0x4a4038, trim: 0x544a3c, door: 0x2a221c }, // 赤茶レンガ
+  { base: 0x5a3f30, trim: 0x654838, door: 0x321f17 }, // テラコッタ
   { base: 0x3a3d42, trim: 0x42474e, door: 0x1c1e21 }, // チャコールコンクリート
   { base: 0x4f473a, trim: 0x584f40, door: 0x2e2a22 }, // 暖色コンクリート
+  { base: 0x5c5648, trim: 0x67604f, door: 0x37331f }, // クリーム石材
   { base: 0x33383f, trim: 0x3b4149, door: 0x1a1d21 }, // スティールブルーグレー
   { base: 0x453e33, trim: 0x4e463a, door: 0x28231c }, // タウプ石材
+  { base: 0x2c4038, trim: 0x33473e, door: 0x18231e }, // 緑青（銅板風）
+  { base: 0x1f242c, trim: 0x262c35, door: 0x121519 }, // ダークブロンズガラス
 ];
 // 窓が点灯している場合の色（暖色メイン、たまに白っぽい/やや寒色も混ぜる）
 const windowLitColors = [0xffcc77, 0xffd9a0, 0xfff0c8, 0xcfe0ff];
@@ -189,7 +194,8 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
       const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
       model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
-      const preset = materialPresets[idx % materialPresets.length];
+      // 周期的にならないよう、建物ごとにプリセットをランダムに選ぶ（idxの余りだと同じ並びが繰り返されて単調になる）
+      const preset = materialPresets[Math.floor(Math.random() * materialPresets.length)];
       const windowsLit = Math.random() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
       const windowColor = windowLitColors[Math.floor(Math.random() * windowLitColors.length)];
 
@@ -213,10 +219,15 @@ ALL_BUILDINGS.forEach((name, idx) => {
           } else if (matName === "door") {
             o.material.color.setHex(preset.door);
           } else {
-            // 本体（border, _defaultMat等）: プリセット色＋メッシュごとの微妙な明るさのばらつき
+            // 本体（border, _defaultMat等）: プリセット色＋メッシュごとに色相・彩度・明るさをそれぞれ
+            // 少しずつランダムにずらし、経年変化や個体差があるように見せる
             const base = matName === "border" ? preset.trim : preset.base;
             const c = new THREE.Color(base);
-            c.offsetHSL(0, 0, (Math.random() - 0.5) * 0.12);
+            c.offsetHSL(
+              (Math.random() - 0.5) * 0.04,
+              (Math.random() - 0.5) * 0.15,
+              (Math.random() - 0.5) * 0.14
+            );
             o.material.color.copy(c);
           }
         }
