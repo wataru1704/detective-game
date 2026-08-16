@@ -107,7 +107,7 @@ scene.add(player);
 
 let PLAYER_RADIUS = 0.3; // モデル読み込み後に実測値へ更新
 const PLAYER_SPEED = 4.5; // units/秒
-const PLAYER_ROTATION_OFFSET = Math.PI; // モデルの正面とatan2の基準がズレていたら調整
+const PLAYER_ROTATION_OFFSET = 0; // モデルの正面とatan2の基準がズレていたら調整
 
 let mixer = null;
 let idleAction = null;
