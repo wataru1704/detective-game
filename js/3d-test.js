@@ -96,7 +96,7 @@ const ALL_BUILDINGS = [
   "small_buildingD", "small_buildingE", "small_buildingF",
 ];
 const GRID_COLS = 6;
-const CELL_SIZE = 7; // 区画の間隔（通り幅込み）
+const CELL_SIZE = 6; // 区画の間隔（通り幅込み）。建物間を詰めるため7→6に短縮
 const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
 const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
 const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
@@ -173,7 +173,7 @@ function makeSidewalkTexture() {
 }
 
 const CURB_HEIGHT = 0.14;
-const SIDEWALK_SIZE = FOOTPRINT + 0.8;
+const SIDEWALK_SIZE = FOOTPRINT + 0.5;
 const sidewalkTopMat = new THREE.MeshStandardMaterial({ map: makeSidewalkTexture(), roughness: 0.95 });
 const curbSideMat = new THREE.MeshStandardMaterial({ color: 0x6a6558, roughness: 0.85 });
 
@@ -251,8 +251,10 @@ for (let r = 0; r < gridRows - 1; r++) {
   addHorizontalStreetDashes(z, -streetXExtent, streetXExtent);
 }
 
-// ---------- 横断歩道（交差点ごとに、しま模様として配置） ----------
-function makeCrosswalkTexture() {
+// ---------- 横断歩道（交差点の4辺それぞれに、渡る向きに合わせたしま模様で配置） ----------
+// alongV=false: しまがX方向に並ぶ（南北の通りを、東西に渡る用）
+// alongV=true : しまがZ方向に並ぶ（東西の通りを、南北に渡る用）
+function makeCrosswalkTexture(alongV) {
   const size = 64;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -263,22 +265,42 @@ function makeCrosswalkTexture() {
   const stripes = 5;
   const stripeW = size / (stripes * 2);
   for (let i = 0; i < stripes; i++) {
-    ctx.fillRect(i * stripeW * 2, 0, stripeW, size);
+    if (alongV) {
+      ctx.fillRect(0, i * stripeW * 2, size, stripeW);
+    } else {
+      ctx.fillRect(i * stripeW * 2, 0, stripeW, size);
+    }
   }
   return new THREE.CanvasTexture(canvas);
 }
-const crosswalkTex = makeCrosswalkTexture();
-const crosswalkSize = CELL_SIZE - SIDEWALK_SIZE;
+const crosswalkTexH = makeCrosswalkTexture(false);
+const crosswalkTexV = makeCrosswalkTexture(true);
+const crosswalkSize = CELL_SIZE - SIDEWALK_SIZE; // 通りの幅
+const CROSSWALK_DEPTH = Math.min(1.1, crosswalkSize * 0.8); // 横断歩道帯の奥行き
 
 for (let c = 0; c < GRID_COLS - 1; c++) {
   for (let r = 0; r < gridRows - 1; r++) {
     const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
     const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
-    const mat = new THREE.MeshStandardMaterial({ map: crosswalkTex, transparent: true, depthWrite: false, roughness: 0.9 });
-    const cw = new THREE.Mesh(new THREE.PlaneGeometry(crosswalkSize, crosswalkSize), mat);
-    cw.rotation.x = -Math.PI / 2;
-    cw.position.set(x, 0.02, z);
-    scene.add(cw);
+    const half = crosswalkSize / 2 - CROSSWALK_DEPTH / 2;
+
+    // 南北の通り（Z方向）を、東西に渡る横断歩道。交差点の南北の入口2箇所に配置
+    [-1, 1].forEach((sign) => {
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
+      const cw = new THREE.Mesh(new THREE.PlaneGeometry(crosswalkSize, CROSSWALK_DEPTH), mat);
+      cw.rotation.x = -Math.PI / 2;
+      cw.position.set(x, 0.02, z + sign * half);
+      scene.add(cw);
+    });
+
+    // 東西の通り（X方向）を、南北に渡る横断歩道。交差点の東西の入口2箇所に配置
+    [-1, 1].forEach((sign) => {
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
+      const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_DEPTH, crosswalkSize), mat);
+      cw.rotation.x = -Math.PI / 2;
+      cw.position.set(x + sign * half, 0.02, z);
+      scene.add(cw);
+    });
   }
 }
 
