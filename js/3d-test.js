@@ -127,6 +127,11 @@ scene.add(ground);
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
+// 建物ごとに色を変える（本体色）。窓は別扱いで暖色に光らせる
+const buildingPalette = [
+  0xc9506b, 0x4f8fc9, 0x6bc98f, 0xc9a24f,
+  0x8f6bc9, 0xc96b8f, 0x4fc9c0, 0xc98850,
+];
 
 // ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
 const ALL_BUILDINGS = [
@@ -177,10 +182,21 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
       const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
       model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
+      const bodyColor = new THREE.Color(buildingPalette[idx % buildingPalette.length]);
       model.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
           o.receiveShadow = true;
+          const matName = (o.material && o.material.name) || "";
+          o.material = o.material.clone();
+          if (matName === "window" || matName === "trim") {
+            // 窓は暖色に光らせる（ブルームでほんのり灯りっぽく見える）
+            o.material.color.setHex(0xffcc77);
+            o.material.emissive = new THREE.Color(0xffaa44);
+            o.material.emissiveIntensity = 1.3;
+          } else {
+            o.material.color.copy(bodyColor);
+          }
         }
       });
       scene.add(model);
