@@ -101,62 +101,31 @@ const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近
 const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
 const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
 
-// ---------- 地面（歩道＋車道。建物の区画割りに合わせたタイルを敷き詰める） ----------
-function makeCityGroundTexture() {
-  // このタイル1枚がCELL_SIZE(1区画)ぶんに相当し、真ん中に歩道（建物の周り）、
-  // 外周に車道（区画の境目＝通り）が来るようにする
+// ---------- 地面（車道） ----------
+function makeAsphaltTexture() {
   const px = 256;
   const canvas = document.createElement("canvas");
   canvas.width = px;
   canvas.height = px;
   const ctx = canvas.getContext("2d");
-
-  // 車道（アスファルト）を全面に敷いてからノイズを乗せる
   ctx.fillStyle = "#1c1f27";
   ctx.fillRect(0, 0, px, px);
-  for (let i = 0; i < 1400; i++) {
+  for (let i = 0; i < 1800; i++) {
     const x = Math.random() * px;
     const y = Math.random() * px;
-    const v = 15 + Math.random() * 10;
+    const v = 14 + Math.random() * 10;
     ctx.fillStyle = `rgba(${v + 10},${v + 12},${v + 18},0.16)`;
     ctx.fillRect(x, y, 2, 2);
   }
-
-  // 歩道（タイルの中央＝建物の周り）
-  const sidewalkFrac = (FOOTPRINT + 0.8) / CELL_SIZE;
-  const sw = px * sidewalkFrac;
-  const off = (px - sw) / 2;
-  ctx.fillStyle = "#57544c";
-  ctx.fillRect(off, off, sw, sw);
-  for (let i = 0; i < 500; i++) {
-    const x = off + Math.random() * sw;
-    const y = off + Math.random() * sw;
-    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
-    ctx.fillRect(x, y, 2, 2);
+  // 補修跡っぽいまだらなパッチを少し混ぜて、繰り返しが目立ちにくいようにする
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * px;
+    const y = Math.random() * px;
+    const w = 18 + Math.random() * 40;
+    const h = 14 + Math.random() * 28;
+    ctx.fillStyle = "rgba(40,42,50,0.22)";
+    ctx.fillRect(x, y, w, h);
   }
-  // 歩道のタイル目地
-  ctx.strokeStyle = "rgba(0,0,0,0.25)";
-  ctx.lineWidth = 1.5;
-  const seams = 5;
-  for (let i = 1; i < seams; i++) {
-    const p = off + (sw / seams) * i;
-    ctx.beginPath(); ctx.moveTo(off, p); ctx.lineTo(off + sw, p); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(p, off); ctx.lineTo(p, off + sw); ctx.stroke();
-  }
-  // 縁石
-  ctx.strokeStyle = "rgba(210,205,190,0.6)";
-  ctx.lineWidth = 3;
-  ctx.strokeRect(off, off, sw, sw);
-
-  // 車道の中央線（区画の境目＝タイルの端を通る通りの中心線）
-  ctx.strokeStyle = "rgba(225,215,175,0.6)";
-  ctx.lineWidth = 4;
-  ctx.setLineDash([16, 14]);
-  ctx.beginPath(); ctx.moveTo(px / 2, 0); ctx.lineTo(px / 2, off); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(px / 2, off + sw); ctx.lineTo(px / 2, px); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, px / 2); ctx.lineTo(off, px / 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(off + sw, px / 2); ctx.lineTo(px, px / 2); ctx.stroke();
-
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
@@ -165,14 +134,153 @@ function makeCityGroundTexture() {
 
 const GROUND_TILES = 14; // 縦横に何区画ぶん敷くか（街の格子より一回り広く）
 const GROUND_SIZE = CELL_SIZE * GROUND_TILES;
-const groundTex = makeCityGroundTexture();
-groundTex.repeat.set(GROUND_TILES, GROUND_TILES);
+const asphaltTex = makeAsphaltTexture();
+asphaltTex.repeat.set(GROUND_TILES * 3, GROUND_TILES * 3); // 目を細かくして繰り返しを目立ちにくくする
 const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.9 });
+const groundMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.9 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
+
+// ---------- 歩道（縁石つきの立体にして、道路より一段高くする） ----------
+function makeSidewalkTexture() {
+  const px = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = px;
+  canvas.height = px;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#57544c";
+  ctx.fillRect(0, 0, px, px);
+  for (let i = 0; i < 350; i++) {
+    const x = Math.random() * px;
+    const y = Math.random() * px;
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.12})`;
+    ctx.fillRect(x, y, 2, 2);
+  }
+  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.lineWidth = 1.5;
+  const seams = 4;
+  for (let i = 1; i < seams; i++) {
+    const p = (px / seams) * i;
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(px, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, px); ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+const CURB_HEIGHT = 0.14;
+const SIDEWALK_SIZE = FOOTPRINT + 0.8;
+const sidewalkTopMat = new THREE.MeshStandardMaterial({ map: makeSidewalkTexture(), roughness: 0.95 });
+const curbSideMat = new THREE.MeshStandardMaterial({ color: 0x6a6558, roughness: 0.85 });
+
+for (let row = 0; row < gridRows; row++) {
+  for (let col = 0; col < GRID_COLS; col++) {
+    const cx = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+    const cz = (row - (gridRows - 1) / 2) * CELL_SIZE;
+    const curb = new THREE.Mesh(
+      new THREE.BoxGeometry(SIDEWALK_SIZE, CURB_HEIGHT, SIDEWALK_SIZE),
+      [curbSideMat, curbSideMat, sidewalkTopMat, curbSideMat, curbSideMat, curbSideMat]
+    );
+    curb.position.set(cx, CURB_HEIGHT / 2, cz);
+    curb.receiveShadow = true;
+    curb.castShadow = true;
+    scene.add(curb);
+  }
+}
+
+// ---------- 車道のセンターライン（通り沿いに実際に配置。地面全体に模様を敷き詰めない） ----------
+function makeDashTexture(alongV) {
+  const w = alongV ? 16 : 64;
+  const h = alongV ? 64 : 16;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  // ブルームで異常に光って膨張しないよう、明るさは控えめにしておく
+  ctx.fillStyle = "rgba(180,172,150,0.6)";
+  if (alongV) {
+    ctx.fillRect(4, 10, w - 8, 26);
+  } else {
+    ctx.fillRect(10, 4, 26, h - 8);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+const dashTexV = makeDashTexture(true);
+const dashTexH = makeDashTexture(false);
+const DASH_PERIOD = 1.4; // ダッシュ1つぶんが実寸でどれくらいの長さになるか
+const DASH_WIDTH = 0.3;
+
+function addVerticalStreetDashes(x, zFrom, zTo) {
+  const length = Math.abs(zTo - zFrom);
+  const tex = dashTexV.clone();
+  tex.needsUpdate = true;
+  tex.repeat.set(1, length / DASH_PERIOD);
+  const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.9 });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(DASH_WIDTH, length), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(x, 0.015, (zFrom + zTo) / 2);
+  scene.add(mesh);
+}
+function addHorizontalStreetDashes(z, xFrom, xTo) {
+  const length = Math.abs(xTo - xFrom);
+  const tex = dashTexH.clone();
+  tex.needsUpdate = true;
+  tex.repeat.set(length / DASH_PERIOD, 1);
+  const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.9 });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(length, DASH_WIDTH), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set((xFrom + xTo) / 2, 0.015, z);
+  scene.add(mesh);
+}
+
+const streetZExtent = ((gridRows - 1) / 2 + 0.5) * CELL_SIZE + CELL_SIZE * 1.2;
+for (let c = 0; c < GRID_COLS - 1; c++) {
+  const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
+  addVerticalStreetDashes(x, -streetZExtent, streetZExtent);
+}
+const streetXExtent = ((GRID_COLS - 1) / 2 + 0.5) * CELL_SIZE + CELL_SIZE * 1.2;
+for (let r = 0; r < gridRows - 1; r++) {
+  const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
+  addHorizontalStreetDashes(z, -streetXExtent, streetXExtent);
+}
+
+// ---------- 横断歩道（交差点ごとに、しま模様として配置） ----------
+function makeCrosswalkTexture() {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = "rgba(180,172,150,0.55)";
+  const stripes = 5;
+  const stripeW = size / (stripes * 2);
+  for (let i = 0; i < stripes; i++) {
+    ctx.fillRect(i * stripeW * 2, 0, stripeW, size);
+  }
+  return new THREE.CanvasTexture(canvas);
+}
+const crosswalkTex = makeCrosswalkTexture();
+const crosswalkSize = CELL_SIZE - SIDEWALK_SIZE;
+
+for (let c = 0; c < GRID_COLS - 1; c++) {
+  for (let r = 0; r < gridRows - 1; r++) {
+    const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
+    const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
+    const mat = new THREE.MeshStandardMaterial({ map: crosswalkTex, transparent: true, depthWrite: false, roughness: 0.9 });
+    const cw = new THREE.Mesh(new THREE.PlaneGeometry(crosswalkSize, crosswalkSize), mat);
+    cw.rotation.x = -Math.PI / 2;
+    cw.position.set(x, 0.02, z);
+    scene.add(cw);
+  }
+}
 
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
