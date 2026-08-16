@@ -71,11 +71,13 @@ BUILDINGS_2D.forEach((b, i) => {
       const model = gltf.scene;
 
       // 元のサイズを測って、区画の大きさに合わせて拡大縮小する
+      // （高さだけ HEIGHT_BOOST 倍にして、見上げるスケール感を強調する）
+      const HEIGHT_BOOST = 1.8;
       const rawBox = new THREE.Box3().setFromObject(model);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
       const scaleFactor = Math.max(w, d) / Math.max(rawSize.x, rawSize.z);
-      model.scale.setScalar(scaleFactor);
+      model.scale.set(scaleFactor, scaleFactor * HEIGHT_BOOST, scaleFactor);
 
       // 拡縮後のサイズを測り直し、区画の中心・地面(y=0)に合わせて配置する
       const scaledBox = new THREE.Box3().setFromObject(model);
@@ -105,13 +107,13 @@ BUILDINGS_2D.forEach((b, i) => {
 
 // ---------- プレイヤー ----------
 const player = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.35, 0.7, 4, 8),
+  new THREE.CapsuleGeometry(0.22, 0.45, 4, 8),
   new THREE.MeshStandardMaterial({ color: 0xc94f4f })
 );
-player.position.set(toWorldX(30), 0.9, toWorldZ(30));
+player.position.set(toWorldX(30), 0.45, toWorldZ(30));
 scene.add(player);
 
-const PLAYER_RADIUS = 0.35;
+const PLAYER_RADIUS = 0.22;
 const PLAYER_SPEED = 4.5; // units/秒
 
 function isBlocked(x, z) {
@@ -194,14 +196,14 @@ function updatePlayer(dt) {
 }
 
 // ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
-const CAMERA_DIST = 9;
-const CAMERA_HEIGHT = 6;
+const CAMERA_DIST = 4.5;
+const CAMERA_HEIGHT = 2.6;
 function updateCamera() {
   const p = player.position;
   const offsetX = Math.sin(cameraYaw) * CAMERA_DIST;
   const offsetZ = Math.cos(cameraYaw) * CAMERA_DIST;
   camera.position.set(p.x + offsetX, p.y + CAMERA_HEIGHT, p.z + offsetZ);
-  camera.lookAt(p.x, p.y, p.z);
+  camera.lookAt(p.x, p.y + 0.6, p.z);
 }
 
 // ---------- FPS表示 ----------
