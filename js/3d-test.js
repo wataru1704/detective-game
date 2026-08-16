@@ -1,5 +1,6 @@
-// 3D試作: 箱だけの街を動き回れるかの検証用（見た目のリアルさはまだ作り込まない）
+// 3D試作: Kenney City Kit（CC0）のビルモデルを配置して見た目を確認する
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -41,30 +42,65 @@ const BUILDINGS_2D = [
 ];
 
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
-const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff];
+const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
+
+// Kenney City Kit（CC0, poly.pizza経由）のビルモデル。6区画に割り当てる
+const BUILDING_MODELS = [
+  "skyscraperA", "large_buildingB", "large_buildingD",
+  "small_buildingA", "low_buildingC", "skyscraperD",
+];
+
+const loader = new GLTFLoader();
 
 BUILDINGS_2D.forEach((b, i) => {
   const w = b.w * SCALE;
   const d = b.h * SCALE;
-  const height = 2 + Math.random() * 4;
   const cx = toWorldX(b.x + b.w / 2);
   const cz = toWorldZ(b.y + b.h / 2);
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0x2c303b, roughness: 0.7 });
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, height, d), mat);
-  mesh.position.set(cx, height / 2, cz);
-  scene.add(mesh);
-
-  // ネオン看板っぽい発光パネル（プレースホルダー）
-  const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[i % neonColors.length] });
-  const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.4), neonMat);
-  neon.position.set(cx, height + 0.05, cz - d / 2 - 0.01);
-  scene.add(neon);
-
-  buildingBoxes.push({
+  // モデル読み込み中でも当たり判定は成立するよう、まず概算のAABBを入れておく
+  const boxEntry = {
     minX: cx - w / 2, maxX: cx + w / 2,
     minZ: cz - d / 2, maxZ: cz + d / 2,
-  });
+  };
+  buildingBoxes.push(boxEntry);
+
+  loader.load(
+    `assets/${BUILDING_MODELS[i]}.glb`,
+    (gltf) => {
+      const model = gltf.scene;
+
+      // 元のサイズを測って、区画の大きさに合わせて拡大縮小する
+      const rawBox = new THREE.Box3().setFromObject(model);
+      const rawSize = new THREE.Vector3();
+      rawBox.getSize(rawSize);
+      const scaleFactor = Math.max(w, d) / Math.max(rawSize.x, rawSize.z);
+      model.scale.setScalar(scaleFactor);
+
+      // 拡縮後のサイズを測り直し、区画の中心・地面(y=0)に合わせて配置する
+      const scaledBox = new THREE.Box3().setFromObject(model);
+      const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
+      const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
+      model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
+      scene.add(model);
+
+      // 当たり判定を実際のモデルサイズに更新
+      const finalBox = new THREE.Box3().setFromObject(model);
+      boxEntry.minX = finalBox.min.x;
+      boxEntry.maxX = finalBox.max.x;
+      boxEntry.minZ = finalBox.min.z;
+      boxEntry.maxZ = finalBox.max.z;
+
+      // ネオン看板っぽい発光パネル（プレースホルダー）
+      const topY = finalBox.max.y;
+      const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[i % neonColors.length] });
+      const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.4), neonMat);
+      neon.position.set(cx, topY + 0.3, cz - d / 2 - 0.01);
+      scene.add(neon);
+    },
+    undefined,
+    (err) => console.error(`モデル読み込み失敗: ${BUILDING_MODELS[i]}`, err)
+  );
 });
 
 // ---------- プレイヤー ----------
