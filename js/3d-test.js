@@ -1,12 +1,12 @@
-// 3D試作: Kenney City Kit（CC0）のビルモデルを配置して見た目を確認する
+// 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
-scene.fog = new THREE.Fog(0x05060a, 15, 45);
+scene.fog = new THREE.Fog(0x05060a, 20, 60);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 150);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -20,43 +20,42 @@ moon.position.set(-5, 10, -5);
 scene.add(moon);
 
 // ---------- 地面（street） ----------
-const groundGeo = new THREE.PlaneGeometry(60, 40);
+const groundGeo = new THREE.PlaneGeometry(90, 90);
 const groundMat = new THREE.MeshStandardMaterial({ color: 0x1c1f27, roughness: 0.9 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 scene.add(ground);
 
-// ---------- 建物（2D版と同じレイアウトを3D箱に変換） ----------
-// 2D版のcanvas座標(px)を、3D空間の(x, z)に変換するスケール
-const SCALE = 1 / 26; // 520px -> 20units 相当
-function toWorldX(px) { return (px - 260) * SCALE; }
-function toWorldZ(py) { return (py - 180) * SCALE; }
-
-const BUILDINGS_2D = [
-  { x: 60, y: 60, w: 100, h: 80 },
-  { x: 220, y: 40, w: 120, h: 60 },
-  { x: 400, y: 60, w: 100, h: 100 },
-  { x: 60, y: 220, w: 90, h: 90 },
-  { x: 220, y: 200, w: 100, h: 70 },
-  { x: 380, y: 220, w: 100, h: 100 },
-];
-
+const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
 
-// Kenney City Kit（CC0, poly.pizza経由）のビルモデル。6区画に割り当てる
-const BUILDING_MODELS = [
-  "skyscraperA", "large_buildingB", "large_buildingD",
-  "small_buildingA", "low_buildingC", "skyscraperD",
+// ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
+const ALL_BUILDINGS = [
+  "large_buildingA", "large_buildingB", "large_buildingC", "large_buildingD",
+  "large_buildingE", "large_buildingF", "large_buildingG",
+  "low_buildingA", "low_buildingB", "low_buildingC", "low_buildingD",
+  "low_buildingF", "low_buildingG", "low_buildingI", "low_buildingJ", "low_buildingN",
+  "low_wideA", "low_wideB",
+  "skyscraperA", "skyscraperB", "skyscraperC", "skyscraperD", "skyscraperE", "skyscraperF",
+  "small_buildingA", "small_buildingB", "small_buildingC",
+  "small_buildingD", "small_buildingE", "small_buildingF",
 ];
 
-const loader = new GLTFLoader();
+const GRID_COLS = 6;
+const CELL_SIZE = 7; // 区画の間隔（通り幅込み）
+const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
+const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
 
-BUILDINGS_2D.forEach((b, i) => {
-  const w = b.w * SCALE;
-  const d = b.h * SCALE;
-  const cx = toWorldX(b.x + b.w / 2);
-  const cz = toWorldZ(b.y + b.h / 2);
+const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
+
+ALL_BUILDINGS.forEach((name, idx) => {
+  const col = idx % GRID_COLS;
+  const row = Math.floor(idx / GRID_COLS);
+  const cx = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+  const cz = (row - (gridRows - 1) / 2) * CELL_SIZE;
+  const w = FOOTPRINT;
+  const d = FOOTPRINT;
 
   // モデル読み込み中でも当たり判定は成立するよう、まず概算のAABBを入れておく
   const boxEntry = {
@@ -66,27 +65,22 @@ BUILDINGS_2D.forEach((b, i) => {
   buildingBoxes.push(boxEntry);
 
   loader.load(
-    `assets/${BUILDING_MODELS[i]}.glb`,
+    `assets/${name}.glb`,
     (gltf) => {
       const model = gltf.scene;
 
-      // 元のサイズを測って、区画の大きさに合わせて拡大縮小する
-      // （高さだけ HEIGHT_BOOST 倍にして、見上げるスケール感を強調する）
-      const HEIGHT_BOOST = 1.8;
       const rawBox = new THREE.Box3().setFromObject(model);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
       const scaleFactor = Math.max(w, d) / Math.max(rawSize.x, rawSize.z);
       model.scale.set(scaleFactor, scaleFactor * HEIGHT_BOOST, scaleFactor);
 
-      // 拡縮後のサイズを測り直し、区画の中心・地面(y=0)に合わせて配置する
       const scaledBox = new THREE.Box3().setFromObject(model);
       const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
       const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
       model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
       scene.add(model);
 
-      // 当たり判定を実際のモデルサイズに更新
       const finalBox = new THREE.Box3().setFromObject(model);
       boxEntry.minX = finalBox.min.x;
       boxEntry.maxX = finalBox.max.x;
@@ -95,26 +89,70 @@ BUILDINGS_2D.forEach((b, i) => {
 
       // ネオン看板っぽい発光パネル（プレースホルダー）
       const topY = finalBox.max.y;
-      const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[i % neonColors.length] });
-      const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.6, 0.4), neonMat);
-      neon.position.set(cx, topY + 0.3, cz - d / 2 - 0.01);
+      const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[idx % neonColors.length] });
+      const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 0.5), neonMat);
+      neon.position.set(cx, topY + 0.35, cz - d / 2 - 0.01);
       scene.add(neon);
     },
     undefined,
-    (err) => console.error(`モデル読み込み失敗: ${BUILDING_MODELS[i]}`, err)
+    (err) => console.error(`モデル読み込み失敗: ${name}`, err)
   );
 });
 
-// ---------- プレイヤー ----------
-const player = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.22, 0.45, 4, 8),
-  new THREE.MeshStandardMaterial({ color: 0xc94f4f })
-);
-player.position.set(toWorldX(30), 0.45, toWorldZ(30));
+// ---------- プレイヤー（見た目は人型モデル、当たり判定・移動はplayer自体で扱う） ----------
+const player = new THREE.Object3D();
+const spawnZ = ((gridRows - 1) / 2) * CELL_SIZE + CELL_SIZE * 0.8;
+player.position.set(0, 0, spawnZ);
 scene.add(player);
 
-const PLAYER_RADIUS = 0.22;
+let PLAYER_RADIUS = 0.3; // モデル読み込み後に実測値へ更新
 const PLAYER_SPEED = 4.5; // units/秒
+const PLAYER_ROTATION_OFFSET = Math.PI; // モデルの正面とatan2の基準がズレていたら調整
+
+let mixer = null;
+let idleAction = null;
+let walkAction = null;
+let currentAction = null;
+
+loader.load(
+  "assets/adventurer.glb",
+  (gltf) => {
+    const model = gltf.scene;
+
+    // このモデルはスキン付き（骨で変形するタイプ）で、Box3による自動サイズ測定が
+    // 正しく効かない（骨のワールド座標は正常だが、ジオメトリ側の見かけ上のバウンディングが
+    // 実際のスキン変形後のサイズと一致しない）。そのため、実際にレンダリングして
+    // 確認した見た目のバランスをもとに、スケールを直接指定する。
+    const CHAR_SCALE = 0.55;
+    model.scale.setScalar(CHAR_SCALE);
+    model.position.set(0, 0, 0); // Rootボーンが既に接地面(y=0)にある
+
+    // スキン付きメッシュはフラスタムカリングの判定を誤ることがあるため無効化しておく
+    model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+
+    player.add(model);
+
+    PLAYER_RADIUS = 0.22 * CHAR_SCALE * 2; // 肩幅目安（見た目に合わせて後で微調整可）
+
+    mixer = new THREE.AnimationMixer(model);
+    const clips = gltf.animations;
+    const walkClip = THREE.AnimationClip.findByName(clips, "CharacterArmature|Walk");
+    const idleClip = THREE.AnimationClip.findByName(clips, "CharacterArmature|Idle");
+    walkAction = mixer.clipAction(walkClip);
+    idleAction = mixer.clipAction(idleClip);
+    currentAction = idleAction;
+    idleAction.play();
+  },
+  undefined,
+  (err) => console.error("人型モデル読み込み失敗", err)
+);
+
+function setAction(action) {
+  if (!action || currentAction === action) return;
+  if (currentAction) currentAction.fadeOut(0.2);
+  action.reset().fadeIn(0.2).play();
+  currentAction = action;
+}
 
 function isBlocked(x, z) {
   return buildingBoxes.some(
@@ -173,7 +211,10 @@ function updatePlayer(dt) {
   if (keys["ArrowRight"] || keys["d"]) strafeInput += 1;
   if (keys["ArrowLeft"] || keys["a"]) strafeInput -= 1;
 
-  if (forwardInput === 0 && strafeInput === 0) return;
+  if (forwardInput === 0 && strafeInput === 0) {
+    setAction(idleAction);
+    return;
+  }
 
   const forwardX = -Math.sin(cameraYaw);
   const forwardZ = -Math.cos(cameraYaw);
@@ -188,11 +229,16 @@ function updatePlayer(dt) {
   dz = (dz / len) * PLAYER_SPEED * dt;
 
   const p = player.position;
-  if (!isBlocked(p.x + dx, p.z)) p.x += dx;
-  if (!isBlocked(p.x, p.z + dz)) p.z += dz;
+  let moved = false;
+  if (!isBlocked(p.x + dx, p.z)) { p.x += dx; moved = true; }
+  if (!isBlocked(p.x, p.z + dz)) { p.z += dz; moved = true; }
 
-  // 進んでいる方向にキャラを向ける
-  player.rotation.y = Math.atan2(dx, dz);
+  if (moved) {
+    player.rotation.y = Math.atan2(dx, dz) + PLAYER_ROTATION_OFFSET;
+    setAction(walkAction);
+  } else {
+    setAction(idleAction);
+  }
 }
 
 // ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
@@ -219,6 +265,7 @@ function loop(now) {
 
   updatePlayer(dt);
   updateCamera();
+  if (mixer) mixer.update(dt);
   renderer.render(scene, camera);
 
   frameCount++;
