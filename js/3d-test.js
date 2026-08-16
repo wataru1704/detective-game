@@ -129,21 +129,113 @@ const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
 // 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材/銅板風など）。
 // 部位（本体・トリム・ドア）ごとに色を変え、同じ建物の中でも単色べったりにしない
+// tex: "glass"(模様なし) / "brick"(レンガ目地) / "panel"(コンクリートパネルの継ぎ目)
 const materialPresets = [
-  { base: 0x2e333d, trim: 0x363c46, door: 0x181a20 }, // ガラスカーテンウォール（青灰）
-  { base: 0x233b3f, trim: 0x2c464b, door: 0x141f21 }, // 深緑がかったガラス
-  { base: 0x4a4038, trim: 0x544a3c, door: 0x2a221c }, // 赤茶レンガ
-  { base: 0x5a3f30, trim: 0x654838, door: 0x321f17 }, // テラコッタ
-  { base: 0x3a3d42, trim: 0x42474e, door: 0x1c1e21 }, // チャコールコンクリート
-  { base: 0x4f473a, trim: 0x584f40, door: 0x2e2a22 }, // 暖色コンクリート
-  { base: 0x5c5648, trim: 0x67604f, door: 0x37331f }, // クリーム石材
-  { base: 0x33383f, trim: 0x3b4149, door: 0x1a1d21 }, // スティールブルーグレー
-  { base: 0x453e33, trim: 0x4e463a, door: 0x28231c }, // タウプ石材
-  { base: 0x2c4038, trim: 0x33473e, door: 0x18231e }, // 緑青（銅板風）
-  { base: 0x1f242c, trim: 0x262c35, door: 0x121519 }, // ダークブロンズガラス
+  { base: 0x2e333d, trim: 0x363c46, door: 0x181a20, tex: "glass" }, // ガラスカーテンウォール（青灰）
+  { base: 0x233b3f, trim: 0x2c464b, door: 0x141f21, tex: "glass" }, // 深緑がかったガラス
+  { base: 0x4a4038, trim: 0x544a3c, door: 0x2a221c, tex: "brick" }, // 赤茶レンガ
+  { base: 0x5a3f30, trim: 0x654838, door: 0x321f17, tex: "brick" }, // テラコッタ
+  { base: 0x3a3d42, trim: 0x42474e, door: 0x1c1e21, tex: "panel" }, // チャコールコンクリート
+  { base: 0x4f473a, trim: 0x584f40, door: 0x2e2a22, tex: "panel" }, // 暖色コンクリート
+  { base: 0x5c5648, trim: 0x67604f, door: 0x37331f, tex: "panel" }, // クリーム石材
+  { base: 0x33383f, trim: 0x3b4149, door: 0x1a1d21, tex: "glass" }, // スティールブルーグレー
+  { base: 0x453e33, trim: 0x4e463a, door: 0x28231c, tex: "panel" }, // タウプ石材
+  { base: 0x2c4038, trim: 0x33473e, door: 0x18231e, tex: "panel" }, // 緑青（銅板風）
+  { base: 0x1f242c, trim: 0x262c35, door: 0x121519, tex: "glass" }, // ダークブロンズガラス
 ];
 // 窓が点灯している場合の色（暖色メイン、たまに白っぽい/やや寒色も混ぜる）
-const windowLitColors = [0xffcc77, 0xffd9a0, 0xfff0c8, 0xcfe0ff];
+const windowLitColors = ["#ffcc77", "#ffd9a0", "#fff0c8", "#cfe0ff"];
+
+// ---------- 建物のテクスチャ生成（PS2〜PSP時代のGTAのような、模様のある壁を再現） ----------
+function makePanelTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.lineWidth = 2;
+  const rows = 6;
+  const cols = 4;
+  for (let r = 1; r < rows; r++) {
+    const y = (size / rows) * r;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+  }
+  for (let c = 1; c < cols; c++) {
+    const x = (size / cols) * c;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, size); ctx.stroke();
+  }
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+    ctx.fillRect(x, y, 3, 3);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
+  return tex;
+}
+
+function makeBrickTexture() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.lineWidth = 2;
+  const brickH = 20;
+  const brickW = 44;
+  let row = 0;
+  for (let y = 0; y < size; y += brickH) {
+    const offset = row % 2 === 0 ? 0 : brickW / 2;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y); ctx.stroke();
+    for (let x = -offset; x < size; x += brickW) {
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + brickH); ctx.stroke();
+    }
+    row++;
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 6);
+  return tex;
+}
+
+// 建物ごとに毎回新規生成（1枚ずつ違う窓の点灯パターンにするため）
+function makeWindowGridTexture() {
+  const cols = 6;
+  const rows = 10;
+  const cell = 24;
+  const canvas = document.createElement("canvas");
+  canvas.width = cols * cell;
+  canvas.height = rows * cell;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#14161c";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = c * cell;
+      const y = r * cell;
+      const roll = Math.random();
+      ctx.fillStyle = roll < 0.5 ? "#14161c" : windowLitColors[Math.floor(Math.random() * windowLitColors.length)];
+      ctx.fillRect(x + 3, y + 3, cell - 6, cell - 8);
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+const panelTexture = makePanelTexture();
+const brickTexture = makeBrickTexture();
 
 // ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
 const ALL_BUILDINGS = [
@@ -199,6 +291,8 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const windowsLit = Math.random() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
       const windowColor = windowLitColors[Math.floor(Math.random() * windowLitColors.length)];
 
+      const bodyTexture = preset.tex === "brick" ? brickTexture : preset.tex === "panel" ? panelTexture : null;
+
       model.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -207,20 +301,18 @@ ALL_BUILDINGS.forEach((name, idx) => {
           o.material = o.material.clone();
 
           if (matName === "window" || matName === "trim") {
-            if (windowsLit) {
-              o.material.color.setHex(windowColor);
-              o.material.emissive = new THREE.Color(windowColor);
-              o.material.emissiveIntensity = 1.2;
-            } else {
-              // 消灯：暗いガラスとして本体になじませる
-              o.material.color.setHex(0x14161c);
-              o.material.emissive = new THREE.Color(0x000000);
-            }
+            // 窓は1棟ごとに個別の点灯パターンをテクスチャで持たせる（マスごとに点灯/消灯がバラバラになる）
+            const winTex = makeWindowGridTexture();
+            o.material.map = winTex;
+            o.material.emissiveMap = winTex;
+            o.material.color.set(0xffffff);
+            o.material.emissive = new THREE.Color(0xffffff);
+            o.material.emissiveIntensity = windowsLit ? 1.1 : 0.15;
           } else if (matName === "door") {
             o.material.color.setHex(preset.door);
           } else {
-            // 本体（border, _defaultMat等）: プリセット色＋メッシュごとに色相・彩度・明るさをそれぞれ
-            // 少しずつランダムにずらし、経年変化や個体差があるように見せる
+            // 本体（border, _defaultMat等）: プリセット色＋テクスチャ（レンガ/パネル目地）＋
+            // メッシュごとの色相・彩度・明るさのばらつきで、のっぺりした単色を避ける
             const base = matName === "border" ? preset.trim : preset.base;
             const c = new THREE.Color(base);
             c.offsetHSL(
@@ -229,6 +321,7 @@ ALL_BUILDINGS.forEach((name, idx) => {
               (Math.random() - 0.5) * 0.14
             );
             o.material.color.copy(c);
+            if (bodyTexture) o.material.map = bodyTexture;
           }
         }
       });
