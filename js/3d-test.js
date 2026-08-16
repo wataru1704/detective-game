@@ -1,6 +1,9 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05060a);
@@ -11,19 +14,114 @@ const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerH
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
+
+// ---------- ポストプロセス（ネオンのグロー効果） ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  1.0, // strength
+  0.5, // radius
+  0.3  // threshold（これを超えた明るさの部分だけ光る）
+);
+composer.addPass(bloomPass);
 
 // ---------- ライト ----------
 scene.add(new THREE.AmbientLight(0x8890b0, 2.2));
 const moon = new THREE.DirectionalLight(0xaabbff, 1.5);
-moon.position.set(-5, 10, -5);
+moon.position.set(-5, 18, -8);
+moon.castShadow = true;
+moon.shadow.mapSize.set(2048, 2048);
+moon.shadow.camera.left = -35;
+moon.shadow.camera.right = 35;
+moon.shadow.camera.top = 35;
+moon.shadow.camera.bottom = -35;
+moon.shadow.camera.near = 1;
+moon.shadow.camera.far = 60;
+moon.shadow.bias = -0.002;
 scene.add(moon);
 
-// ---------- 地面（street） ----------
+// ---------- 夜空（グラデーション＋星） ----------
+function makeSkyGradientTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 2;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#02030a");
+  grad.addColorStop(0.55, "#0a0e1f");
+  grad.addColorStop(1, "#2a1f3d");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 2, 256);
+  return new THREE.CanvasTexture(canvas);
+}
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(200, 24, 24),
+  new THREE.MeshBasicMaterial({ map: makeSkyGradientTexture(), side: THREE.BackSide, fog: false })
+);
+scene.add(sky);
+
+const STAR_COUNT = 600;
+const starPositions = new Float32Array(STAR_COUNT * 3);
+for (let i = 0; i < STAR_COUNT; i++) {
+  const r = 180;
+  const theta = Math.random() * Math.PI * 2;
+  const phi = Math.random() * Math.PI * 0.5; // 上半分のみ
+  starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+  starPositions[i * 3 + 1] = r * Math.cos(phi) + 15;
+  starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+}
+const starGeo = new THREE.BufferGeometry();
+starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
+const stars = new THREE.Points(
+  starGeo,
+  new THREE.PointsMaterial({ color: 0xffffff, size: 1.3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85 })
+);
+scene.add(stars);
+
+// ---------- 地面（street、アスファルト風テクスチャ＋道路の白線） ----------
+function makeRoadTexture() {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#1c1f27";
+  ctx.fillRect(0, 0, size, size);
+  for (let i = 0; i < 3500; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const v = 15 + Math.random() * 12;
+    ctx.fillStyle = `rgba(${v + 10},${v + 12},${v + 18},0.18)`;
+    ctx.fillRect(x, y, 2, 2);
+  }
+  ctx.strokeStyle = "rgba(225,215,175,0.55)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([22, 18]);
+  ctx.beginPath();
+  ctx.moveTo(size / 2, 0);
+  ctx.lineTo(size / 2, size);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, size / 2);
+  ctx.lineTo(size, size / 2);
+  ctx.stroke();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(12, 12);
+  return tex;
+}
 const groundGeo = new THREE.PlaneGeometry(90, 90);
-const groundMat = new THREE.MeshStandardMaterial({ color: 0x1c1f27, roughness: 0.9 });
+const groundMat = new THREE.MeshStandardMaterial({ map: makeRoadTexture(), roughness: 0.9 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
 scene.add(ground);
 
 const loader = new GLTFLoader();
@@ -79,6 +177,12 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
       const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
       model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
+      model.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+        }
+      });
       scene.add(model);
 
       const finalBox = new THREE.Box3().setFromObject(model);
@@ -87,9 +191,10 @@ ALL_BUILDINGS.forEach((name, idx) => {
       boxEntry.minZ = finalBox.min.z;
       boxEntry.maxZ = finalBox.max.z;
 
-      // ネオン看板っぽい発光パネル（プレースホルダー）
+      // ネオン看板（明るさを1.0以上にして、ブルームで光らせる）
       const topY = finalBox.max.y;
       const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[idx % neonColors.length] });
+      neonMat.color.multiplyScalar(2.5);
       const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 0.5), neonMat);
       neon.position.set(cx, topY + 0.35, cz - d / 2 - 0.01);
       scene.add(neon);
@@ -128,7 +233,12 @@ loader.load(
     model.position.set(0, 0, 0); // Rootボーンが既に接地面(y=0)にある
 
     // スキン付きメッシュはフラスタムカリングの判定を誤ることがあるため無効化しておく
-    model.traverse((o) => { if (o.isMesh) o.frustumCulled = false; });
+    model.traverse((o) => {
+      if (o.isMesh) {
+        o.frustumCulled = false;
+        o.castShadow = true;
+      }
+    });
 
     player.add(model);
 
@@ -312,7 +422,7 @@ function loop(now) {
   updatePlayer(dt);
   updateCamera();
   if (mixer) mixer.update(dt);
-  renderer.render(scene, camera);
+  composer.render();
 
   frameCount++;
   fpsAccum += dt;
@@ -330,4 +440,5 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 });
