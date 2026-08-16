@@ -169,17 +169,51 @@ const keys = {};
 document.addEventListener("keydown", (e) => (keys[e.key] = true));
 document.addEventListener("keyup", (e) => (keys[e.key] = false));
 
-// スマホ用タッチボタン
-document.querySelectorAll(".btn3d[data-key]").forEach((btn) => {
-  const key = btn.dataset.key;
-  const press = (e) => { e.preventDefault(); keys[key] = true; };
-  const release = (e) => { e.preventDefault(); keys[key] = false; };
-  btn.addEventListener("touchstart", press, { passive: false });
-  btn.addEventListener("touchend", release, { passive: false });
-  btn.addEventListener("touchcancel", release, { passive: false });
-  btn.addEventListener("mousedown", press);
-  btn.addEventListener("mouseup", release);
-  btn.addEventListener("mouseleave", release);
+// ---------- スマホ用バーチャルスティック ----------
+const joyBase = document.getElementById("joystick-base");
+const joyKnob = document.getElementById("joystick-knob");
+const joyState = { active: false, pointerId: null, x: 0, z: 0 }; // x:-1〜1(右+), z:-1〜1(前+)
+const JOY_MAX_PX = 40; // ノブが動ける最大距離(px)
+
+function joyUpdateFromEvent(e) {
+  const rect = joyBase.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  let dx = e.clientX - cx;
+  let dy = e.clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > JOY_MAX_PX) {
+    dx = (dx / dist) * JOY_MAX_PX;
+    dy = (dy / dist) * JOY_MAX_PX;
+  }
+  joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  joyState.x = dx / JOY_MAX_PX;
+  joyState.z = -dy / JOY_MAX_PX; // 画面上方向へのドラッグ＝前進(+)
+}
+
+function joyReset() {
+  joyState.active = false;
+  joyState.pointerId = null;
+  joyState.x = 0;
+  joyState.z = 0;
+  joyKnob.style.transform = "translate(0px, 0px)";
+}
+
+joyBase.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  joyState.active = true;
+  joyState.pointerId = e.pointerId;
+  joyUpdateFromEvent(e);
+});
+window.addEventListener("pointermove", (e) => {
+  if (!joyState.active || e.pointerId !== joyState.pointerId) return;
+  joyUpdateFromEvent(e);
+});
+window.addEventListener("pointerup", (e) => {
+  if (e.pointerId === joyState.pointerId) joyReset();
+});
+window.addEventListener("pointercancel", (e) => {
+  if (e.pointerId === joyState.pointerId) joyReset();
 });
 
 // ---------- 視点回転（画面ドラッグ、ボタン部分は除く） ----------
@@ -201,6 +235,8 @@ window.addEventListener("pointermove", (e) => {
 window.addEventListener("pointerup", () => { dragging = false; });
 window.addEventListener("pointercancel", () => { dragging = false; });
 
+const JOY_DEAD_ZONE = 0.15;
+
 function updatePlayer(dt) {
   // 「上」＝画面奥（カメラが向いている方向）、「右」＝画面右、になるよう
   // 入力(forward/strafe)を、視点の回転(cameraYaw)に合わせてワールド座標に変換する
@@ -210,6 +246,11 @@ function updatePlayer(dt) {
   if (keys["ArrowDown"] || keys["s"]) forwardInput -= 1;
   if (keys["ArrowRight"] || keys["d"]) strafeInput += 1;
   if (keys["ArrowLeft"] || keys["a"]) strafeInput -= 1;
+
+  if (Math.hypot(joyState.x, joyState.z) > JOY_DEAD_ZONE) {
+    forwardInput += joyState.z;
+    strafeInput += joyState.x;
+  }
 
   if (forwardInput === 0 && strafeInput === 0) {
     setAction(idleAction);
@@ -224,9 +265,14 @@ function updatePlayer(dt) {
   let dx = forwardX * forwardInput + rightX * strafeInput;
   let dz = forwardZ * forwardInput + rightZ * strafeInput;
 
+  // 大きさは最大1に制限（アナログスティックの傾き具合を速度に反映する）
   const len = Math.hypot(dx, dz);
-  dx = (dx / len) * PLAYER_SPEED * dt;
-  dz = (dz / len) * PLAYER_SPEED * dt;
+  if (len > 1) {
+    dx /= len;
+    dz /= len;
+  }
+  dx *= PLAYER_SPEED * dt;
+  dz *= PLAYER_SPEED * dt;
 
   const p = player.position;
   let moved = false;

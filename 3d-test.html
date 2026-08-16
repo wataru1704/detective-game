@@ -16,38 +16,66 @@
     color: #f0c14b; font-family: sans-serif; font-size: 13px;
     background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px;
   }
-  #touch3d {
-    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
-    z-index: 10;
-    display: grid;
-    grid-template-columns: repeat(3, 56px);
-    grid-template-rows: repeat(3, 48px);
-    gap: 6px;
-  }
-  .btn3d {
-    background: rgba(38,42,51,0.8);
-    color: #e8e6df;
+  /* バーチャルスティック（左下） */
+  #joystick-base {
+    position: fixed; left: 24px; bottom: 24px;
+    width: 110px; height: 110px;
+    border-radius: 50%;
+    background: rgba(38,42,51,0.6);
     border: 1px solid rgba(61,66,80,0.9);
-    border-radius: 8px;
-    font-size: 1.1rem;
+    touch-action: none;
+    z-index: 10;
+  }
+  #joystick-knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 48px; height: 48px;
+    margin-left: -24px; margin-top: -24px;
+    border-radius: 50%;
+    background: rgba(201,79,79,0.85);
+    pointer-events: none;
+  }
+
+  /* 調べるボタン（右下） */
+  #btn-touch-interact {
+    position: fixed; right: 28px; bottom: 36px;
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    background: rgba(201,79,79,0.85);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+    font-size: 0.9rem;
     touch-action: none;
     user-select: none;
+    z-index: 10;
   }
-  .t-up { grid-column: 2; grid-row: 1; }
-  .t-left { grid-column: 1; grid-row: 2; }
-  .t-right { grid-column: 3; grid-row: 2; }
-  .t-down { grid-column: 2; grid-row: 3; }
+
+  /* 縦画面のときは回転を促す案内を出す（スマホ想定） */
+  #rotate-hint {
+    display: none;
+    position: fixed; inset: 0;
+    z-index: 20;
+    background: rgba(5,6,10,0.92);
+    color: #e8e6df;
+    align-items: center; justify-content: center;
+    text-align: center;
+    font-size: 1.1rem;
+    padding: 24px;
+  }
+  @media (orientation: portrait) and (pointer: coarse) {
+    #rotate-hint { display: flex; }
+  }
 </style>
 </head>
 <body>
 <div id="info">矢印キー/WASDで移動、画面をドラッグで視点回転（3D試作・箱だけの街）</div>
 <div id="fps">--- fps</div>
-<div id="touch3d">
-  <button class="btn3d t-up" data-key="ArrowUp">↑</button>
-  <button class="btn3d t-left" data-key="ArrowLeft">←</button>
-  <button class="btn3d t-right" data-key="ArrowRight">→</button>
-  <button class="btn3d t-down" data-key="ArrowDown">↓</button>
+
+<div id="joystick-base">
+  <div id="joystick-knob"></div>
 </div>
+<button id="btn-touch-interact">調べる</button>
+
+<div id="rotate-hint">スマホを横向きにしてください 📱↻</div>
 <script type="importmap">
 {
   "imports": {
