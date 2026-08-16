@@ -84,41 +84,91 @@ const stars = new THREE.Points(
 );
 scene.add(stars);
 
-// ---------- 地面（street、アスファルト風テクスチャ＋道路の白線） ----------
-function makeRoadTexture() {
-  const size = 512;
+// ---------- 街のレイアウト定数（建物・地面の両方で使うので先に定義） ----------
+const ALL_BUILDINGS = [
+  "large_buildingA", "large_buildingB", "large_buildingC", "large_buildingD",
+  "large_buildingE", "large_buildingF", "large_buildingG",
+  "low_buildingA", "low_buildingB", "low_buildingC", "low_buildingD",
+  "low_buildingF", "low_buildingG", "low_buildingI", "low_buildingJ", "low_buildingN",
+  "low_wideA", "low_wideB",
+  "skyscraperA", "skyscraperB", "skyscraperC", "skyscraperD", "skyscraperE", "skyscraperF",
+  "small_buildingA", "small_buildingB", "small_buildingC",
+  "small_buildingD", "small_buildingE", "small_buildingF",
+];
+const GRID_COLS = 6;
+const CELL_SIZE = 7; // 区画の間隔（通り幅込み）
+const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
+const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
+const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
+
+// ---------- 地面（歩道＋車道。建物の区画割りに合わせたタイルを敷き詰める） ----------
+function makeCityGroundTexture() {
+  // このタイル1枚がCELL_SIZE(1区画)ぶんに相当し、真ん中に歩道（建物の周り）、
+  // 外周に車道（区画の境目＝通り）が来るようにする
+  const px = 256;
   const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
+  canvas.width = px;
+  canvas.height = px;
   const ctx = canvas.getContext("2d");
+
+  // 車道（アスファルト）を全面に敷いてからノイズを乗せる
   ctx.fillStyle = "#1c1f27";
-  ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 3500; i++) {
-    const x = Math.random() * size;
-    const y = Math.random() * size;
-    const v = 15 + Math.random() * 12;
-    ctx.fillStyle = `rgba(${v + 10},${v + 12},${v + 18},0.18)`;
+  ctx.fillRect(0, 0, px, px);
+  for (let i = 0; i < 1400; i++) {
+    const x = Math.random() * px;
+    const y = Math.random() * px;
+    const v = 15 + Math.random() * 10;
+    ctx.fillStyle = `rgba(${v + 10},${v + 12},${v + 18},0.16)`;
     ctx.fillRect(x, y, 2, 2);
   }
-  ctx.strokeStyle = "rgba(225,215,175,0.55)";
+
+  // 歩道（タイルの中央＝建物の周り）
+  const sidewalkFrac = (FOOTPRINT + 0.8) / CELL_SIZE;
+  const sw = px * sidewalkFrac;
+  const off = (px - sw) / 2;
+  ctx.fillStyle = "#57544c";
+  ctx.fillRect(off, off, sw, sw);
+  for (let i = 0; i < 500; i++) {
+    const x = off + Math.random() * sw;
+    const y = off + Math.random() * sw;
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.1})`;
+    ctx.fillRect(x, y, 2, 2);
+  }
+  // 歩道のタイル目地
+  ctx.strokeStyle = "rgba(0,0,0,0.25)";
+  ctx.lineWidth = 1.5;
+  const seams = 5;
+  for (let i = 1; i < seams; i++) {
+    const p = off + (sw / seams) * i;
+    ctx.beginPath(); ctx.moveTo(off, p); ctx.lineTo(off + sw, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, off); ctx.lineTo(p, off + sw); ctx.stroke();
+  }
+  // 縁石
+  ctx.strokeStyle = "rgba(210,205,190,0.6)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(off, off, sw, sw);
+
+  // 車道の中央線（区画の境目＝タイルの端を通る通りの中心線）
+  ctx.strokeStyle = "rgba(225,215,175,0.6)";
   ctx.lineWidth = 4;
-  ctx.setLineDash([22, 18]);
-  ctx.beginPath();
-  ctx.moveTo(size / 2, 0);
-  ctx.lineTo(size / 2, size);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(0, size / 2);
-  ctx.lineTo(size, size / 2);
-  ctx.stroke();
+  ctx.setLineDash([16, 14]);
+  ctx.beginPath(); ctx.moveTo(px / 2, 0); ctx.lineTo(px / 2, off); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(px / 2, off + sw); ctx.lineTo(px / 2, px); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, px / 2); ctx.lineTo(off, px / 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(off + sw, px / 2); ctx.lineTo(px, px / 2); ctx.stroke();
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(12, 12);
   return tex;
 }
-const groundGeo = new THREE.PlaneGeometry(90, 90);
-const groundMat = new THREE.MeshStandardMaterial({ map: makeRoadTexture(), roughness: 0.9 });
+
+const GROUND_TILES = 14; // 縦横に何区画ぶん敷くか（街の格子より一回り広く）
+const GROUND_SIZE = CELL_SIZE * GROUND_TILES;
+const groundTex = makeCityGroundTexture();
+groundTex.repeat.set(GROUND_TILES, GROUND_TILES);
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
+const groundMat = new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.9 });
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
@@ -238,24 +288,6 @@ const panelTexture = makePanelTexture();
 const brickTexture = makeBrickTexture();
 
 // ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
-const ALL_BUILDINGS = [
-  "large_buildingA", "large_buildingB", "large_buildingC", "large_buildingD",
-  "large_buildingE", "large_buildingF", "large_buildingG",
-  "low_buildingA", "low_buildingB", "low_buildingC", "low_buildingD",
-  "low_buildingF", "low_buildingG", "low_buildingI", "low_buildingJ", "low_buildingN",
-  "low_wideA", "low_wideB",
-  "skyscraperA", "skyscraperB", "skyscraperC", "skyscraperD", "skyscraperE", "skyscraperF",
-  "small_buildingA", "small_buildingB", "small_buildingC",
-  "small_buildingD", "small_buildingE", "small_buildingF",
-];
-
-const GRID_COLS = 6;
-const CELL_SIZE = 7; // 区画の間隔（通り幅込み）
-const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
-const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
-
-const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
-
 ALL_BUILDINGS.forEach((name, idx) => {
   const col = idx % GRID_COLS;
   const row = Math.floor(idx / GRID_COLS);
