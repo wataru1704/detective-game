@@ -127,10 +127,17 @@ scene.add(ground);
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
-// 建物ごとに色を変える（本体色）。窓は別扱いで暖色に光らせる
+// 建物ごとに色を変える（本体色）。実際の夜の街のように、壁は暗め・地味なコンクリート/ガラス/
+// レンガ系の色にとどめ、色や光の主役は窓の灯りや看板側に持たせる
 const buildingPalette = [
-  0xc9506b, 0x4f8fc9, 0x6bc98f, 0xc9a24f,
-  0x8f6bc9, 0xc96b8f, 0x4fc9c0, 0xc98850,
+  0x2e333d, // 濃いスレートガラス
+  0x3a332c, // 暗いレンガ茶
+  0x33383f, // チャコールグレー
+  0x413c33, // 暖かめのコンクリート
+  0x2a2e36, // ほぼ黒に近いガラス
+  0x3a352d, // タウプ（くすんだ茶）
+  0x2f333b, // スティールブルーグレー
+  0x38332c, // 暗い暖色グレー
 ];
 
 // ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
