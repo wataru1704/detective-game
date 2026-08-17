@@ -96,7 +96,7 @@ const ALL_BUILDINGS = [
   "small_buildingD", "small_buildingE", "small_buildingF",
 ];
 const GRID_COLS = 6;
-const CELL_SIZE = 6; // 区画の間隔（通り幅込み）。建物間を詰めるため7→6に短縮
+const CELL_SIZE = 10; // 区画の間隔（通り幅込み）
 const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
 const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
 const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
@@ -277,6 +277,9 @@ const crosswalkTexH = makeCrosswalkTexture(false);
 const crosswalkTexV = makeCrosswalkTexture(true);
 const crosswalkSize = CELL_SIZE - SIDEWALK_SIZE; // 通りの幅
 const CROSSWALK_DEPTH = Math.min(1.1, crosswalkSize * 0.8); // 横断歩道帯の奥行き
+// 帯の長さ（渡る方向と垂直な向きの幅）は通り幅いっぱいにせず、
+// 交差点の角で東西用・南北用の帯同士が重ならないよう内側に収める
+const CROSSWALK_LENGTH = crosswalkSize - CROSSWALK_DEPTH * 2;
 
 for (let c = 0; c < GRID_COLS - 1; c++) {
   for (let r = 0; r < gridRows - 1; r++) {
@@ -287,7 +290,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
     // 南北の通り（Z方向）を、東西に渡る横断歩道。交差点の南北の入口2箇所に配置
     [-1, 1].forEach((sign) => {
       const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
-      const cw = new THREE.Mesh(new THREE.PlaneGeometry(crosswalkSize, CROSSWALK_DEPTH), mat);
+      const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_LENGTH, CROSSWALK_DEPTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x, 0.02, z + sign * half);
       scene.add(cw);
@@ -296,7 +299,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
     // 東西の通り（X方向）を、南北に渡る横断歩道。交差点の東西の入口2箇所に配置
     [-1, 1].forEach((sign) => {
       const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
-      const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_DEPTH, crosswalkSize), mat);
+      const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_DEPTH, CROSSWALK_LENGTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x + sign * half, 0.02, z);
       scene.add(cw);
