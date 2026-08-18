@@ -286,19 +286,22 @@ for (let row = 0; row < gridRows; row++) {
 }
 
 // 空き地は一街区を丸ごと空けず、建物1棟ぶんの月極駐車場にする。
+const parkingVehicleSpots = [];
+const curatedPropSpots = [];
 OPEN_LOT_INDICES.forEach((index, order) => {
   const name = buildingNameForSlot(index);
   const layout = createBuildingLayout(name, index);
+  const isVacant = order % 3 === 1;
   const pad = new THREE.Mesh(
     new THREE.PlaneGeometry(5.05, 5.0),
-    order % 3 === 1 ? sidewalkTopMat : serviceAlleyMaterial
+    isVacant ? sidewalkTopMat : serviceAlleyMaterial
   );
   pad.rotation.x = -Math.PI / 2;
   pad.position.set(layout.x, CURB_HEIGHT + 0.022, layout.z);
   pad.receiveShadow = true;
   scene.add(pad);
 
-  if (order % 3 !== 1) {
+  if (!isVacant) {
     [-1, 1].forEach((side) => {
       const line = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.012, 3.7), parkingLineMaterial);
       line.position.set(layout.x + side * 1.33, CURB_HEIGHT + 0.035, layout.z);
@@ -310,6 +313,26 @@ OPEN_LOT_INDICES.forEach((index, order) => {
       stop.castShadow = true;
       scene.add(stop);
     });
+    parkingVehicleSpots.push({
+      asset: order % 2 === 0 ? "car_sedan" : "car_van",
+      x: layout.x,
+      z: layout.z,
+      rotation: layout.slotInBlock < 3 ? Math.PI : 0,
+    });
+    curatedPropSpots.push({
+      asset: "suburban_planter",
+      x: layout.x + (order % 2 === 0 ? 1.92 : -1.92),
+      z: layout.z + (layout.slotInBlock < 3 ? 1.82 : -1.82),
+      rotation: order * 0.63,
+    });
+  } else {
+    const front = layout.slotInBlock < 3 ? -1 : 1;
+    curatedPropSpots.push(
+      { asset: "road_dumpster", x: layout.x + 1.35, z: layout.z - front * 0.82, rotation: Math.PI / 2 },
+      { asset: "road_barrier", x: layout.x - 0.65, z: layout.z + front * 1.72, rotation: 0 },
+      { asset: "suburban_fence_low", x: layout.x - 1.85, z: layout.z - front * 0.5, rotation: Math.PI / 2 },
+      { asset: "suburban_tree_small", x: layout.x + 0.75, z: layout.z + front * 0.65, rotation: order * 0.41 }
+    );
   }
 });
 
@@ -434,6 +457,106 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 }
 
 const loader = new GLTFLoader();
+
+const streetAssetDiagnostics = {
+  expected: parkingVehicleSpots.length + curatedPropSpots.length,
+  placed: 0,
+  failed: [],
+};
+window.__streetAssetDiagnostics = streetAssetDiagnostics;
+renderer.domElement.dataset.streetAssetsExpected = String(streetAssetDiagnostics.expected);
+renderer.domElement.dataset.streetAssetsPlaced = "0";
+renderer.domElement.dataset.streetAssetsFailed = "0";
+
+function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizontal", collidable = false) {
+  if (placements.length === 0) return;
+  loader.load(
+    "assets/" + assetName + ".glb",
+    (gltf) => {
+      const source = gltf.scene;
+      const rawBox = new THREE.Box3().setFromObject(source);
+      const rawSize = new THREE.Vector3();
+      rawBox.getSize(rawSize);
+      const fitDimension = fitAxis === "height" ? rawSize.y : Math.max(rawSize.x, rawSize.z);
+      if (!Number.isFinite(fitDimension) || fitDimension <= 0) {
+        streetAssetDiagnostics.failed.push(assetName);
+        return;
+      }
+      source.scale.setScalar(targetSize / fitDimension);
+      source.updateMatrixWorld(true);
+
+      placements.forEach((placement, index) => {
+        const model = source.clone(true);
+        model.name = "StreetAsset:" + assetName + ":" + index;
+        model.rotation.y = placement.rotation || 0;
+        model.updateMatrixWorld(true);
+
+        const rotatedBox = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        rotatedBox.getCenter(center);
+        model.position.set(
+          placement.x - center.x,
+          CURB_HEIGHT - rotatedBox.min.y,
+          placement.z - center.z
+        );
+        model.updateMatrixWorld(true);
+        model.traverse((object) => {
+          if (!object.isMesh) return;
+          object.castShadow = assetName.startsWith("car_");
+          object.receiveShadow = true;
+        });
+        scene.add(model);
+
+        if (collidable) {
+          const finalBox = new THREE.Box3().setFromObject(model);
+          buildingBoxes.push({
+            minX: finalBox.min.x,
+            maxX: finalBox.max.x,
+            minZ: finalBox.min.z,
+            maxZ: finalBox.max.z,
+          });
+        }
+        streetAssetDiagnostics.placed += 1;
+        renderer.domElement.dataset.streetAssetsPlaced = String(streetAssetDiagnostics.placed);
+      });
+    },
+    undefined,
+    (error) => {
+      streetAssetDiagnostics.failed.push(assetName);
+      renderer.domElement.dataset.streetAssetsFailed = String(streetAssetDiagnostics.failed.length);
+      console.warn("Street asset load failed: " + assetName, error);
+    }
+  );
+}
+
+[
+  { name: "car_sedan", target: 3.8, collidable: true },
+  { name: "car_van", target: 3.8, collidable: true },
+].forEach((spec) => {
+  loadPlacedAsset(
+    spec.name,
+    parkingVehicleSpots.filter((spot) => spot.asset === spec.name),
+    spec.target,
+    "horizontal",
+    spec.collidable
+  );
+});
+
+[
+  { name: "road_dumpster", target: 1.55, fit: "horizontal" },
+  { name: "road_barrier", target: 1.5, fit: "horizontal" },
+  { name: "suburban_fence_low", target: 2.6, fit: "horizontal" },
+  { name: "suburban_planter", target: 0.75, fit: "horizontal" },
+  { name: "suburban_tree_small", target: 3.2, fit: "height" },
+].forEach((spec) => {
+  loadPlacedAsset(
+    spec.name,
+    curatedPropSpots.filter((spot) => spot.asset === spec.name),
+    spec.target,
+    spec.fit
+  );
+});
+
 // ---------- 街灯（車道灯として現実的な高さにそろえる） ----------
 const STREETLIGHT_HEIGHT = 5.2;
 const streetlightPoleGeometry = new THREE.CylinderGeometry(0.055, 0.075, STREETLIGHT_HEIGHT, 8);

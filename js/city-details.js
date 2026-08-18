@@ -244,7 +244,7 @@ export function createJapaneseCityDetails({
   addWire(0.48, 6.78, 0.42);
   addWire(0.16, 5.9, 0.62);
 
-  function addTrafficSignal(z, direction) {
+  function addTrafficSignal(intersectionZ, direction) {
     const group = new THREE.Group();
     const side = direction;
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 4.7, 10), galvanizedMaterial);
@@ -271,7 +271,13 @@ export function createJapaneseCityDetails({
       lens.rotation.y = side > 0 ? Math.PI : 0;
       group.add(lens);
     });
-    group.position.set(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight, z);
+    // 柱は交差する2本の道路から外れた歩道角へ置き、腕だけを車道上へ出す。
+    const cornerClearance = 0.45;
+    group.position.set(
+      mainRoadX + side * (roadHalfWidth + cornerClearance),
+      curbHeight,
+      intersectionZ + side * (roadHalfWidth + cornerClearance)
+    );
     details.add(group);
   }
   [-cellSize / 2, cellSize / 2].forEach((z) => {
