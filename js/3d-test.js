@@ -1,61 +1,49 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { createJapaneseCityDetails } from "./city-details.js";
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05060a);
-scene.fog = new THREE.Fog(0x05060a, 20, 60);
+scene.background = new THREE.Color(0x889ca6);
+scene.fog = new THREE.Fog(0x889ca6, 38, 118);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 150);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 220);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 0.95;
 document.body.appendChild(renderer.domElement);
 
-// ---------- ポストプロセス（ネオンのグロー効果） ----------
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  1.0, // strength
-  0.5, // radius
-  0.3  // threshold（これを超えた明るさの部分だけ光る）
-);
-composer.addPass(bloomPass);
 
 // ---------- ライト ----------
-scene.add(new THREE.AmbientLight(0x8890b0, 2.2));
-const moon = new THREE.DirectionalLight(0xaabbff, 1.5);
-moon.position.set(-5, 18, -8);
-moon.castShadow = true;
-moon.shadow.mapSize.set(2048, 2048);
-moon.shadow.camera.left = -35;
-moon.shadow.camera.right = 35;
-moon.shadow.camera.top = 35;
-moon.shadow.camera.bottom = -35;
-moon.shadow.camera.near = 1;
-moon.shadow.camera.far = 60;
-moon.shadow.bias = -0.002;
-scene.add(moon);
+scene.add(new THREE.HemisphereLight(0xc7d8df, 0x5f594e, 2.0));
+const sun = new THREE.DirectionalLight(0xffd3a0, 2.8);
+sun.position.set(-38, 54, -24);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -62;
+sun.shadow.camera.right = 62;
+sun.shadow.camera.top = 62;
+sun.shadow.camera.bottom = -62;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 120;
+sun.shadow.bias = -0.0015;
+scene.add(sun);
 
-// ---------- 夜空（グラデーション＋星） ----------
+// ---------- 夕方の空（自然光と大気遠近が分かる明るさ） ----------
 function makeSkyGradientTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = 2;
   canvas.height = 256;
   const ctx = canvas.getContext("2d");
   const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#02030a");
-  grad.addColorStop(0.55, "#0a0e1f");
-  grad.addColorStop(1, "#2a1f3d");
+  grad.addColorStop(0, "#6f8797");
+  grad.addColorStop(0.55, "#9aabb1");
+  grad.addColorStop(1, "#d3a47e");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 2, 256);
   return new THREE.CanvasTexture(canvas);
@@ -66,7 +54,7 @@ const sky = new THREE.Mesh(
 );
 scene.add(sky);
 
-const STAR_COUNT = 600;
+const STAR_COUNT = 0;
 const starPositions = new Float32Array(STAR_COUNT * 3);
 for (let i = 0; i < STAR_COUNT; i++) {
   const r = 180;
@@ -96,10 +84,11 @@ const ALL_BUILDINGS = [
   "small_buildingD", "small_buildingE", "small_buildingF",
 ];
 const GRID_COLS = 6;
-const CELL_SIZE = 10; // 区画の間隔（通り幅込み）
-const BLOCK_SIZE = 6.4; // 建物側の区画。残りが車道の幅になる
-const MIN_BUILDING_FOOTPRINT = 3.2;
-const MAX_BUILDING_FOOTPRINT = 5.7;
+const CELL_SIZE = 14; // 区画の間隔（8mの敷地＋6mの生活道路）
+const BLOCK_SIZE = 8; // 建物敷地。残り6mを対面通行できる車道にする
+const MIN_BUILDING_FOOTPRINT = 3.3;
+const MAX_BUILDING_FOOTPRINT = 5.9;
+const OPEN_LOT_INDICES = [4, 13, 22, 27]; // 月極駐車場・空き地として街に抜けを作る
 // モデル本来の縦横比を保ったまま、極端に巨大化する種類だけ実寸に近い高さで止める。
 function getBuildingMaxHeight(name) {
   if (name.startsWith("low_building")) return 7.0;
@@ -294,13 +283,17 @@ function addHorizontalStreetDashes(z, xFrom, xTo) {
 }
 
 const streetZExtent = ((gridRows - 1) / 2 + 0.5) * CELL_SIZE + CELL_SIZE * 1.2;
+const MAIN_ROAD_CORRIDOR = Math.floor((GRID_COLS - 1) / 2);
+const SHOPPING_STREET_CORRIDOR = Math.floor(gridRows / 2);
 for (let c = 0; c < GRID_COLS - 1; c++) {
   const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
+  if (c !== MAIN_ROAD_CORRIDOR) continue;
   addVerticalStreetDashes(x, -streetZExtent, streetZExtent);
 }
 const streetXExtent = ((GRID_COLS - 1) / 2 + 0.5) * CELL_SIZE + CELL_SIZE * 1.2;
 for (let r = 0; r < gridRows - 1; r++) {
   const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
+  if (r !== SHOPPING_STREET_CORRIDOR) continue;
   addHorizontalStreetDashes(z, -streetXExtent, streetXExtent);
 }
 
@@ -335,6 +328,7 @@ const CROSSWALK_DEPTH = Math.min(1.1, crosswalkSize * 0.8); // 横断歩道帯�
 const CROSSWALK_LENGTH = crosswalkSize - 0.28;
 
 for (let c = 0; c < GRID_COLS - 1; c++) {
+  if (c !== MAIN_ROAD_CORRIDOR) continue;
   for (let r = 0; r < gridRows - 1; r++) {
     const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
     const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
@@ -361,8 +355,8 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 }
 
 const loader = new GLTFLoader();
-// ---------- 街灯（夜の道路に高さの基準と明暗の差を作る） ----------
-const STREETLIGHT_HEIGHT = 2.8;
+// ---------- 街灯（車道灯として現実的な高さにそろえる） ----------
+const STREETLIGHT_HEIGHT = 5.2;
 const streetlightPoleGeometry = new THREE.CylinderGeometry(0.055, 0.075, STREETLIGHT_HEIGHT, 8);
 const streetlightArmGeometry = new THREE.BoxGeometry(0.5, 0.055, 0.055);
 const streetlightLampGeometry = new THREE.BoxGeometry(0.22, 0.1, 0.16);
@@ -408,26 +402,37 @@ for (let row = 0; row < gridRows; row++) {
     const side = index % 2 === 0 ? 1 : -1;
     const x = lotX + side * (BLOCK_SIZE / 2 - 0.1);
     const z = lotZ + ((row + col) % 2 === 0 ? 1 : -1) * (BLOCK_SIZE / 2 - 0.1);
-    addStreetlight(x, z, side > 0 ? Math.PI : 0, index % 5 === 0);
+    addStreetlight(x, z, side > 0 ? Math.PI : 0, index % 9 === 0);
   }
 }
+createJapaneseCityDetails({
+  THREE,
+  scene,
+  gridCols: GRID_COLS,
+  gridRows,
+  cellSize: CELL_SIZE,
+  blockSize: BLOCK_SIZE,
+  curbHeight: CURB_HEIGHT,
+  openLotIndices: OPEN_LOT_INDICES,
+});
+
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
 // 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材/銅板風など）。
 // 部位（本体・トリム・ドア）ごとに色を変え、同じ建物の中でも単色べったりにしない
 // tex: "glass"(模様なし) / "brick"(レンガ目地) / "panel"(コンクリートパネルの継ぎ目)
 const materialPresets = [
-  { base: 0x2e333d, trim: 0x363c46, door: 0x181a20, tex: "glass" }, // ガラスカーテンウォール（青灰）
-  { base: 0x233b3f, trim: 0x2c464b, door: 0x141f21, tex: "glass" }, // 深緑がかったガラス
-  { base: 0x4a4038, trim: 0x544a3c, door: 0x2a221c, tex: "brick" }, // 赤茶レンガ
-  { base: 0x5a3f30, trim: 0x654838, door: 0x321f17, tex: "brick" }, // テラコッタ
-  { base: 0x3a3d42, trim: 0x42474e, door: 0x1c1e21, tex: "panel" }, // チャコールコンクリート
-  { base: 0x4f473a, trim: 0x584f40, door: 0x2e2a22, tex: "panel" }, // 暖色コンクリート
-  { base: 0x5c5648, trim: 0x67604f, door: 0x37331f, tex: "panel" }, // クリーム石材
-  { base: 0x33383f, trim: 0x3b4149, door: 0x1a1d21, tex: "glass" }, // スティールブルーグレー
-  { base: 0x453e33, trim: 0x4e463a, door: 0x28231c, tex: "panel" }, // タウプ石材
-  { base: 0x2c4038, trim: 0x33473e, door: 0x18231e, tex: "panel" }, // 緑青（銅板風）
-  { base: 0x1f242c, trim: 0x262c35, door: 0x121519, tex: "glass" }, // ダークブロンズガラス
+  { base: 0x68737b, trim: 0x7b858a, door: 0x30383d, tex: "glass" }, // 古い青灰色の雑居ビル
+  { base: 0x667e7d, trim: 0x829291, door: 0x304443, tex: "glass" }, // 緑がかったタイル
+  { base: 0x80695b, trim: 0x9a8170, door: 0x4e3a30, tex: "brick" }, // 色褪せた赤茶レンガ
+  { base: 0x936958, trim: 0xa67d69, door: 0x56382e, tex: "brick" }, // 古いテラコッタ
+  { base: 0x707277, trim: 0x85878a, door: 0x383a3d, tex: "panel" }, // 打放しコンクリート
+  { base: 0x8d8271, trim: 0xa09583, door: 0x544b3f, tex: "panel" }, // 昭和期の暖色外壁
+  { base: 0xa39b82, trim: 0xb7ae94, door: 0x5e5848, tex: "panel" }, // クリーム色マンション
+  { base: 0x69747c, trim: 0x828b91, door: 0x343b40, tex: "glass" }, // スティール外装
+  { base: 0x817668, trim: 0x95897a, door: 0x4b4238, tex: "panel" }, // 汚れた石材
+  { base: 0x61796d, trim: 0x789084, door: 0x344a40, tex: "panel" }, // 緑青の金属板
+  { base: 0x5c646c, trim: 0x737b83, door: 0x30363d, tex: "glass" }, // ダークガラス
 ];
 // 窓が点灯している場合の色（暖色メイン、たまに白っぽい/やや寒色も混ぜる）
 const windowLitColors = ["#ffcc77", "#ffd9a0", "#fff0c8", "#cfe0ff"];
@@ -460,6 +465,22 @@ function makePanelTexture() {
     ctx.fillRect(x, y, 3, 3);
   }
   const tex = new THREE.CanvasTexture(canvas);
+  // 雨だれと地面付近の黒ずみを足し、均一に新品へ見えるのを避ける。
+  for (let i = 0; i < 18; i++) {
+    const x = Math.random() * size;
+    const width = 2 + Math.random() * 8;
+    const streak = ctx.createLinearGradient(0, 0, 0, size);
+    streak.addColorStop(0, "rgba(55,55,50,0)");
+    streak.addColorStop(0.45, "rgba(55,55,50,0.04)");
+    streak.addColorStop(1, "rgba(40,42,38,0.18)");
+    ctx.fillStyle = streak;
+    ctx.fillRect(x, 30 + Math.random() * 80, width, size);
+  }
+  const groundGrime = ctx.createLinearGradient(0, size * 0.72, 0, size);
+  groundGrime.addColorStop(0, "rgba(35,38,34,0)");
+  groundGrime.addColorStop(1, "rgba(35,38,34,0.25)");
+  ctx.fillStyle = groundGrime;
+  ctx.fillRect(0, size * 0.72, size, size * 0.28);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(1, 4);
@@ -491,6 +512,10 @@ function makeBrickTexture() {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 6);
+  for (let i = 0; i < 35; i++) {
+    ctx.fillStyle = `rgba(55,45,38,${0.03 + Math.random() * 0.09})`;
+    ctx.fillRect(Math.random() * size, Math.random() * size, 8 + Math.random() * 30, 3 + Math.random() * 12);
+  }
   return tex;
 }
 
@@ -525,9 +550,34 @@ const brickTexture = makeBrickTexture();
 const rooftopUnitGeometry = new THREE.BoxGeometry(0.65, 0.3, 0.5);
 const rooftopUnitMaterial = new THREE.MeshStandardMaterial({ color: 0x42474d, roughness: 0.8, metalness: 0.35 });
 
+const storefrontLabels = ["山田商店", "喫茶みなと", "中華そば", "青葉薬局", "クリーニング", "大衆酒場"];
+const storefrontColors = ["#8c4036", "#345d6b", "#a07835", "#47705d", "#786b52", "#6e3f45"];
 
-// ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
+function makeJapaneseFacadeSignTexture(index) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 384;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = storefrontColors[index % storefrontColors.length];
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "rgba(255,255,255,0.08)";
+  for (let i = 0; i < 9; i++) ctx.fillRect(i * 51, (i * 23) % 80, 28, 3);
+  ctx.strokeStyle = "rgba(35,30,25,0.55)";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(3, 3, canvas.width - 6, canvas.height - 6);
+  ctx.fillStyle = "#eee8d2";
+  ctx.font = "bold 42px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(storefrontLabels[index % storefrontLabels.length], canvas.width / 2, canvas.height / 2 + 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// ---------- 街のレイアウト（建物・月極駐車場・空き地を混在させる） ----------
 ALL_BUILDINGS.forEach((name, idx) => {
+  if (OPEN_LOT_INDICES.includes(idx)) return;
   const layout = createBuildingLayout(name, idx);
   const styleRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 2027 + 50000);
   const w = layout.footprint;
@@ -630,11 +680,15 @@ ALL_BUILDINGS.forEach((name, idx) => {
 
       // 看板は屋上に浮かせず、モデル正面の地上階付近へ置く。
       if (decorRandom() < 0.58 && topY > CURB_HEIGHT + 1.2) {
-        const neonMat = new THREE.MeshBasicMaterial({
-          color: neonColors[idx % neonColors.length],
+        const signTexture = makeJapaneseFacadeSignTexture(idx);
+        const neonMat = new THREE.MeshStandardMaterial({
+          map: signTexture,
+          emissiveMap: signTexture,
+          emissive: new THREE.Color(neonColors[idx % neonColors.length]),
+          emissiveIntensity: 0.28,
           side: THREE.DoubleSide,
+          roughness: 0.72,
         });
-        neonMat.color.multiplyScalar(1.8);
         const front = new THREE.Vector3(0, 0, -1).applyAxisAngle(
           new THREE.Vector3(0, 1, 0),
           layout.rotation
@@ -644,7 +698,7 @@ ALL_BUILDINGS.forEach((name, idx) => {
         const facadeWidth = Math.abs(front.z) > 0.5 ? buildingWidth : buildingDepth;
         const facadeOffset = Math.abs(front.x) * buildingWidth / 2 + Math.abs(front.z) * buildingDepth / 2;
         const neonWidth = facadeWidth * 0.55;
-        const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.38), neonMat);
+        const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.48), neonMat);
         neon.position.set(
           buildingCenterX + front.x * (facadeOffset + 0.015),
           Math.min(topY - 0.3, CURB_HEIGHT + BUILDING_FACADE_SIGN_HEIGHT),
@@ -877,7 +931,7 @@ function loop(now) {
   updatePlayer(dt);
   updateCamera();
   if (mixer) mixer.update(dt);
-  composer.render();
+  renderer.render(scene, camera);
 
   frameCount++;
   fpsAccum += dt;
@@ -895,5 +949,4 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
 });
