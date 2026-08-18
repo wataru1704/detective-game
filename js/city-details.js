@@ -20,7 +20,7 @@ export function createJapaneseCityDetails({
   const roadHalfWidth = roadWidth / 2;
   const cityHalfWidth = ((gridCols - 1) * cellSize + blockSize) / 2;
   const cityHalfDepth = ((gridRows - 1) * cellSize + blockSize) / 2;
-  const mainRoadX = 0;
+  const mainRoadX = (Math.floor((gridCols - 1) / 2) + 0.5 - (gridCols - 1) / 2) * cellSize;
   const shoppingStreetZ = cellSize / 2;
 
   const asphaltMaterial = new THREE.MeshStandardMaterial({ color: 0x45484a, roughness: 0.98 });
@@ -146,8 +146,8 @@ export function createJapaneseCityDetails({
 
   // 道路の補修跡。同じ矩形を整列させず、角度と色を少しずつ変える。
   const patchPositions = [
-    [-1.3, -25, 0.08], [1.1, -16, -0.04], [-0.5, -4, 0.03], [1.5, 12, -0.06],
-    [-1.1, 23, 0.04], [-24, shoppingStreetZ + 0.8, -0.03], [-12, shoppingStreetZ - 1.1, 0.05],
+    [mainRoadX - 1.3, -25, 0.08], [mainRoadX + 1.1, -16, -0.04], [mainRoadX - 0.5, -4, 0.03], [mainRoadX + 1.5, 12, -0.06],
+    [mainRoadX - 1.1, 23, 0.04], [-24, shoppingStreetZ + 0.8, -0.03], [-12, shoppingStreetZ - 1.1, 0.05],
     [13, shoppingStreetZ + 1.2, -0.04], [27, shoppingStreetZ - 0.7, 0.06],
   ];
   patchPositions.forEach(([x, z, rotation], index) => {
@@ -177,7 +177,7 @@ export function createJapaneseCityDetails({
   // 道路端の側溝。細かい格子はテクスチャではなく共通の短い蓋で表現する。
   const drainTransforms = [];
   for (let z = -cityHalfDepth + 5; z <= cityHalfDepth - 5; z += 5.5) {
-    drainTransforms.push([-roadHalfWidth + 0.14, z], [roadHalfWidth - 0.14, z]);
+    drainTransforms.push([mainRoadX - roadHalfWidth + 0.14, z], [mainRoadX + roadHalfWidth - 0.14, z]);
   }
   const drainMesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(0.28, 0.035, 0.82),
@@ -193,7 +193,7 @@ export function createJapaneseCityDetails({
   details.add(drainMesh);
 
   // 電柱と電線。主要道路の片側へ寄せ、日本の狭い街路らしい密度にする。
-  const poleX = roadHalfWidth + 0.42;
+  const poleX = mainRoadX + roadHalfWidth + 0.42;
   const poleZPositions = [];
   for (let z = -cityHalfDepth + 4; z <= cityHalfDepth - 4; z += cellSize) poleZPositions.push(z);
   const poleGeometry = new THREE.CylinderGeometry(0.12, 0.17, 7.1, 10);
@@ -271,7 +271,7 @@ export function createJapaneseCityDetails({
       lens.rotation.y = side > 0 ? Math.PI : 0;
       group.add(lens);
     });
-    group.position.set(side * (roadHalfWidth + 0.35), curbHeight, z);
+    group.position.set(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight, z);
     details.add(group);
   }
   [-cellSize / 2, cellSize / 2].forEach((z) => {
@@ -286,13 +286,13 @@ export function createJapaneseCityDetails({
         const segmentZ = z + segment * 1.75;
         addBox(
           new THREE.Vector3(0.09, 0.78, 0.09),
-          new THREE.Vector3(side * (roadHalfWidth + 0.08), curbHeight + 0.39, segmentZ),
+          new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.08), curbHeight + 0.39, segmentZ),
           galvanizedMaterial
         );
       }
       addBox(
         new THREE.Vector3(0.08, 0.2, 3.65),
-        new THREE.Vector3(side * (roadHalfWidth + 0.08), curbHeight + 0.58, z),
+        new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.08), curbHeight + 0.58, z),
         galvanizedMaterial
       );
     });
@@ -313,11 +313,11 @@ export function createJapaneseCityDetails({
     details.add(face);
   }
   addVendingMachine(6, 0xd8d5cd, "飲料");
-  addVendingMachine(17, 0x3d5870, "珈琲");
-  addVendingMachine(24, 0xb84a3c, "飲料");
+  addVendingMachine(4, 0x3d5870, "珈琲");
+  addVendingMachine(2, 0xb84a3c, "飲料");
 
   // 室外機と配管を建物脇へ置く。外周寄りなので入口や道路を塞がない。
-  [1, 2, 7, 8, 15, 19, 25, 29].forEach((index, order) => {
+  [1, 2, 3, 4, 6, 7, 8].forEach((index, order) => {
     if (openLotIndices.includes(index)) return;
     const center = lotCenter(index);
     const side = order % 2 === 0 ? 1 : -1;
@@ -341,7 +341,7 @@ export function createJapaneseCityDetails({
 
   // 路肩や空地だけに雑草を置き、均等な装飾にならないようにする。
   const weedPositions = [
-    [-3.62, -30], [3.7, -11], [-3.7, 2], [3.65, 26], [-20, shoppingStreetZ - 3.65],
+    [mainRoadX - 3.62, -30], [mainRoadX + 3.7, -11], [mainRoadX - 3.7, 2], [mainRoadX + 3.65, 26], [-20, shoppingStreetZ - 3.65],
     [18, shoppingStreetZ + 3.7], [31, shoppingStreetZ - 3.6],
   ];
   weedPositions.forEach(([x, z], index) => {
@@ -360,7 +360,7 @@ export function createJapaneseCityDetails({
     new THREE.PlaneGeometry(2.3, 0.8),
     new THREE.MeshStandardMaterial({ map: shoppingTexture, roughness: 0.88, side: THREE.DoubleSide })
   );
-  shoppingSign.position.set(-roadHalfWidth - 0.35, curbHeight + 2.7, shoppingStreetZ - roadHalfWidth - 0.45);
+  shoppingSign.position.set(mainRoadX - roadHalfWidth - 0.35, curbHeight + 2.7, shoppingStreetZ - roadHalfWidth - 0.45);
   shoppingSign.rotation.y = Math.PI / 2;
   details.add(shoppingSign);
   addBox(
