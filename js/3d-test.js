@@ -73,7 +73,7 @@ const stars = new THREE.Points(
 scene.add(stars);
 
 // ---------- 街のレイアウト定数（建物・地面の両方で使うので先に定義） ----------
-const ALL_BUILDINGS = [
+const BASE_BUILDINGS = [
   "large_buildingA", "large_buildingB", "large_buildingC", "large_buildingD",
   "large_buildingE", "large_buildingF", "large_buildingG",
   "low_buildingA", "low_buildingB", "low_buildingC", "low_buildingD",
@@ -83,14 +83,27 @@ const ALL_BUILDINGS = [
   "small_buildingA", "small_buildingB", "small_buildingC",
   "small_buildingD", "small_buildingE", "small_buildingF",
 ];
-const GRID_COLS = 6;
-const CELL_SIZE = 14; // 区画の間隔（8mの敷地＋6mの生活道路）
-const BLOCK_SIZE = 8; // 建物敷地。残り6mを対面通行できる車道にする
+const SUBURBAN_BUILDINGS = [
+  "suburban_a", "suburban_c", "suburban_f", "suburban_h",
+  "suburban_k", "suburban_n", "suburban_r", "suburban_u",
+];
+const BUILDING_ASSETS = [...BASE_BUILDINGS, ...SUBURBAN_BUILDINGS];
+
+// 以前は8mの敷地を6m道路が一軒ごとに囲み、街の約67%が道路だった。
+// 18m四方の街区を6m道路で区切り、各街区に6つの小敷地をまとめる。
+const GRID_COLS = 3;
+const GRID_ROWS = 3;
+const CELL_SIZE = 24;
+const BLOCK_SIZE = 18;
 const MIN_BUILDING_FOOTPRINT = 3.3;
-const MAX_BUILDING_FOOTPRINT = 5.9;
-const OPEN_LOT_INDICES = [4, 13, 22, 27]; // 月極駐車場・空き地として街に抜けを作る
+const MAX_BUILDING_FOOTPRINT = 5.15;
+const BUILDINGS_PER_BLOCK = 6;
+const TOTAL_CITY_SLOTS = GRID_COLS * GRID_ROWS * BUILDINGS_PER_BLOCK;
+// 大きな空き街区ではなく、建物1棟ぶんの月極駐車場・空地として残す。
+const OPEN_LOT_INDICES = [5, 16, 25, 36, 43, 50];
 // モデル本来の縦横比を保ったまま、極端に巨大化する種類だけ実寸に近い高さで止める。
 function getBuildingMaxHeight(name) {
+  if (name.startsWith("suburban_")) return 8.5;
   if (name.startsWith("low_building")) return 7.0;
   if (name.startsWith("low_wide")) return 7.0;
   if (name.startsWith("small_building")) return 9.0;
@@ -102,7 +115,7 @@ function getBuildingMaxHeight(name) {
 const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
 const BUILDING_ROOF_UNIT_MARGIN = 0.8;
 const CITY_LAYOUT_SEED = 1704; // 再読み込みしても同じ街並みを再現するための固定値
-const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
+const gridRows = GRID_ROWS;
 
 /** 同じseedから、毎回同じ0〜1の乱数列を作る。 */
 function createSeededRandom(seed) {
@@ -116,31 +129,48 @@ function createSeededRandom(seed) {
   };
 }
 
-/** 道路は整列させたまま、建物だけ大きさ・後退距離・向きを変える。 */
+/**
+ * 1街区を道路沿いの6敷地へ分割する。
+ * City Tour（MIT）の区画分割という発想を参考に、日本の小規模街区向けに独自実装。
+ */
 function createBuildingLayout(name, index) {
   const random = createSeededRandom(CITY_LAYOUT_SEED + index * 1013);
-  const col = index % GRID_COLS;
-  const row = Math.floor(index / GRID_COLS);
-  const lotX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
-  const lotZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
+  const blockIndex = Math.floor(index / BUILDINGS_PER_BLOCK);
+  const slotInBlock = index % BUILDINGS_PER_BLOCK;
+  const col = blockIndex % GRID_COLS;
+  const row = Math.floor(blockIndex / GRID_COLS);
+  const blockX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+  const blockZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
+  const localColumns = [-5.65, 0, 5.65];
+  const localX = localColumns[slotInBlock % 3];
+  const isSouthSide = slotInBlock >= 3;
+  const localZ = isSouthSide ? 5.35 : -5.35;
 
   let minimumSize = MIN_BUILDING_FOOTPRINT;
   let maximumSize = MAX_BUILDING_FOOTPRINT;
-  if (name.startsWith("small_")) maximumSize = 4.4;
-  if (name.startsWith("low_wide")) minimumSize = 4.7;
+  if (name.startsWith("small_") || name.startsWith("suburban_")) maximumSize = 4.65;
+  if (name.startsWith("low_wide")) minimumSize = 4.55;
 
   const footprint = minimumSize + random() * (maximumSize - minimumSize);
-  const availableOffset = Math.max(0, (BLOCK_SIZE - footprint) / 2 - 0.18);
-  const offsetX = (random() * 2 - 1) * availableOffset;
-  const offsetZ = (random() * 2 - 1) * availableOffset;
-  const quarterTurn = Math.floor(random() * 4);
+  const offsetX = (random() * 2 - 1) * 0.32;
+  const offsetZ = (random() * 2 - 1) * 0.25;
+  // 建物正面を外周道路へ向け、10%だけ横向きの古い建物を混ぜる。
+  const rotation = (isSouthSide ? Math.PI : 0) + (random() < 0.1 ? Math.PI / 2 : 0);
 
   return {
-    x: lotX + offsetX,
-    z: lotZ + offsetZ,
+    x: blockX + localX + offsetX,
+    z: blockZ + localZ + offsetZ,
     footprint,
-    rotation: quarterTurn * Math.PI / 2,
+    rotation,
+    blockIndex,
+    slotInBlock,
   };
+}
+
+function buildingNameForSlot(index) {
+  // 新旧のモデルが固まらないよう、固定seedの順番で循環させる。
+  const stride = 11;
+  return BUILDING_ASSETS[(index * stride + Math.floor(index / BUILDINGS_PER_BLOCK) * 3) % BUILDING_ASSETS.length];
 }
 
 // ---------- 地面（車道） ----------
@@ -233,6 +263,55 @@ for (let row = 0; row < gridRows; row++) {
     scene.add(curb);
   }
 }
+
+// ---------- 街区内部の裏路地と小さな月極駐車場 ----------
+const serviceAlleyMaterial = new THREE.MeshStandardMaterial({ color: 0x35383a, roughness: 0.98 });
+const parkingLineMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b5a4, roughness: 0.9 });
+const wheelStopMaterial = new THREE.MeshStandardMaterial({ color: 0x77756f, roughness: 0.95 });
+
+// 表通りの間に、建物の裏口・室外機へ続く2.3m幅のサービス路地を通す。
+for (let row = 0; row < gridRows; row++) {
+  for (let col = 0; col < GRID_COLS; col++) {
+    const cx = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+    const cz = (row - (gridRows - 1) / 2) * CELL_SIZE;
+    const alley = new THREE.Mesh(
+      new THREE.PlaneGeometry(BLOCK_SIZE - 1.1, 2.3),
+      serviceAlleyMaterial
+    );
+    alley.rotation.x = -Math.PI / 2;
+    alley.position.set(cx, CURB_HEIGHT + 0.018, cz);
+    alley.receiveShadow = true;
+    scene.add(alley);
+  }
+}
+
+// 空き地は一街区を丸ごと空けず、建物1棟ぶんの月極駐車場にする。
+OPEN_LOT_INDICES.forEach((index, order) => {
+  const name = buildingNameForSlot(index);
+  const layout = createBuildingLayout(name, index);
+  const pad = new THREE.Mesh(
+    new THREE.PlaneGeometry(5.05, 5.0),
+    order % 3 === 1 ? sidewalkTopMat : serviceAlleyMaterial
+  );
+  pad.rotation.x = -Math.PI / 2;
+  pad.position.set(layout.x, CURB_HEIGHT + 0.022, layout.z);
+  pad.receiveShadow = true;
+  scene.add(pad);
+
+  if (order % 3 !== 1) {
+    [-1, 1].forEach((side) => {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.012, 3.7), parkingLineMaterial);
+      line.position.set(layout.x + side * 1.33, CURB_HEIGHT + 0.035, layout.z);
+      scene.add(line);
+    });
+    [-1.25, 0, 1.25].forEach((offset) => {
+      const stop = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.16, 0.16), wheelStopMaterial);
+      stop.position.set(layout.x + offset, CURB_HEIGHT + 0.09, layout.z + (layout.slotInBlock < 3 ? 1.35 : -1.35));
+      stop.castShadow = true;
+      scene.add(stop);
+    });
+  }
+});
 
 // ---------- 車道のセンターライン（通り沿いに実際に配置。地面全体に模様を敷き詰めない） ----------
 function makeDashTexture(alongV) {
@@ -413,7 +492,7 @@ createJapaneseCityDetails({
   cellSize: CELL_SIZE,
   blockSize: BLOCK_SIZE,
   curbHeight: CURB_HEIGHT,
-  openLotIndices: OPEN_LOT_INDICES,
+  openLotIndices: [],
 });
 
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
@@ -547,6 +626,10 @@ function makeWindowGridTexture(random) {
 
 const panelTexture = makePanelTexture();
 const brickTexture = makeBrickTexture();
+// 点灯窓は8パターンを共有し、建物数を増やしてもテクスチャ数が膨らまないようにする。
+const windowTextureCache = Array.from({ length: 8 }, (_, index) =>
+  makeWindowGridTexture(createSeededRandom(CITY_LAYOUT_SEED + 700000 + index * 7919))
+);
 const rooftopUnitGeometry = new THREE.BoxGeometry(0.65, 0.3, 0.5);
 const rooftopUnitMaterial = new THREE.MeshStandardMaterial({ color: 0x42474d, roughness: 0.8, metalness: 0.35 });
 
@@ -576,7 +659,8 @@ function makeJapaneseFacadeSignTexture(index) {
 }
 
 // ---------- 街のレイアウト（建物・月極駐車場・空き地を混在させる） ----------
-ALL_BUILDINGS.forEach((name, idx) => {
+Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
+  const name = buildingNameForSlot(idx);
   if (OPEN_LOT_INDICES.includes(idx)) return;
   const layout = createBuildingLayout(name, idx);
   const styleRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 2027 + 50000);
@@ -617,14 +701,14 @@ ALL_BUILDINGS.forEach((name, idx) => {
 
       model.traverse((o) => {
         if (o.isMesh) {
-          o.castShadow = true;
+          o.castShadow = layout.blockIndex >= 6 || layout.blockIndex === 4;
           o.receiveShadow = true;
           const matName = (o.material && o.material.name) || "";
           o.material = o.material.clone();
 
           if (matName === "window" || matName === "trim") {
             // 窓は1棟ごとに個別の点灯パターンをテクスチャで持たせる（マスごとに点灯/消灯がバラバラになる）
-            const winTex = makeWindowGridTexture(styleRandom);
+            const winTex = windowTextureCache[(idx + Math.floor(styleRandom() * windowTextureCache.length)) % windowTextureCache.length];
             o.material.map = winTex;
             o.material.emissiveMap = winTex;
             o.material.color.set(0xffffff);
@@ -715,8 +799,9 @@ ALL_BUILDINGS.forEach((name, idx) => {
 
 // ---------- プレイヤー（見た目は人型モデル、当たり判定・移動はplayer自体で扱う） ----------
 const player = new THREE.Object3D();
-const spawnZ = ((gridRows - 1) / 2) * CELL_SIZE + CELL_SIZE * 0.8;
-player.position.set(0, 0, spawnZ);
+const spawnX = -CELL_SIZE / 2;
+const spawnZ = ((gridRows - 1) / 2) * CELL_SIZE + 3.0;
+player.position.set(spawnX, 0, spawnZ);
 scene.add(player);
 
 let PLAYER_RADIUS = 0.3; // モデル読み込み後に実測値へ更新
