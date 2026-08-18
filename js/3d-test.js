@@ -100,7 +100,18 @@ const CELL_SIZE = 10; // 区画の間隔（通り幅込み）
 const BLOCK_SIZE = 6.4; // 建物側の区画。残りが車道の幅になる
 const MIN_BUILDING_FOOTPRINT = 3.2;
 const MAX_BUILDING_FOOTPRINT = 5.7;
-const BASE_HEIGHT_BOOST = 1.65; // 建物ごとに、この値からさらに高さを変える
+// モデル本来の縦横比を保ったまま、極端に巨大化する種類だけ実寸に近い高さで止める。
+function getBuildingMaxHeight(name) {
+  if (name.startsWith("low_building")) return 7.0;
+  if (name.startsWith("low_wide")) return 7.0;
+  if (name.startsWith("small_building")) return 9.0;
+  if (name.startsWith("large_building")) return 16.0;
+  if (name.startsWith("skyscraper")) return 30.0;
+  return 12.0;
+}
+
+const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
+const BUILDING_ROOF_UNIT_MARGIN = 0.8;
 const CITY_LAYOUT_SEED = 1704; // 再読み込みしても同じ街並みを再現するための固定値
 const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
 
@@ -140,7 +151,6 @@ function createBuildingLayout(name, index) {
     z: lotZ + offsetZ,
     footprint,
     rotation: quarterTurn * Math.PI / 2,
-    heightBoost: BASE_HEIGHT_BOOST * (0.82 + random() * 0.42),
   };
 }
 
@@ -538,14 +548,17 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const rawBox = new THREE.Box3().setFromObject(model);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
-      const scaleFactor = layout.footprint / Math.max(rawSize.x, rawSize.z);
-      model.scale.set(scaleFactor, scaleFactor * layout.heightBoost, scaleFactor);
+      const footprintScale = layout.footprint / Math.max(rawSize.x, rawSize.z);
+      const heightScale = getBuildingMaxHeight(name) / rawSize.y;
+      const scaleFactor = Math.min(footprintScale, heightScale);
+      // XYZを同じ倍率にして、扉・窓・階高の形を変形させない。
+      model.scale.setScalar(scaleFactor);
       model.rotation.y = layout.rotation;
 
       const transformedBox = new THREE.Box3().setFromObject(model);
       const centerX = (transformedBox.min.x + transformedBox.max.x) / 2;
       const centerZ = (transformedBox.min.z + transformedBox.max.z) / 2;
-      model.position.set(layout.x - centerX, -transformedBox.min.y, layout.z - centerZ);
+      model.position.set(layout.x - centerX, CURB_HEIGHT - transformedBox.min.y, layout.z - centerZ);
       // 周期的にならないよう、建物ごとにプリセットをランダムに選ぶ（idxの余りだと同じ並びが繰り返されて単調になる）
       const preset = materialPresets[Math.floor(styleRandom() * materialPresets.length)];
       const windowsLit = styleRandom() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
@@ -596,6 +609,8 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const buildingCenterX = (finalBox.min.x + finalBox.max.x) / 2;
       const buildingCenterZ = (finalBox.min.z + finalBox.max.z) / 2;
       const decorRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 3037 + 90000);
+      const roofOffsetX = Math.max(0, (finalBox.max.x - finalBox.min.x - BUILDING_ROOF_UNIT_MARGIN) / 2);
+      const roofOffsetZ = Math.max(0, (finalBox.max.z - finalBox.min.z - BUILDING_ROOF_UNIT_MARGIN) / 2);
 
       // 室外機や換気設備に見える箱を屋上へ置き、輪郭の単調さを崩す。
       if (decorRandom() < 0.78) {
@@ -603,9 +618,9 @@ ALL_BUILDINGS.forEach((name, idx) => {
         for (let unitIndex = 0; unitIndex < unitCount; unitIndex++) {
           const rooftopUnit = new THREE.Mesh(rooftopUnitGeometry, rooftopUnitMaterial);
           rooftopUnit.position.set(
-            buildingCenterX + (decorRandom() - 0.5) * Math.min(1.5, finalBox.max.x - finalBox.min.x),
+            buildingCenterX + (decorRandom() * 2 - 1) * roofOffsetX,
             topY + 0.15,
-            buildingCenterZ + (decorRandom() - 0.5) * Math.min(1.5, finalBox.max.z - finalBox.min.z)
+            buildingCenterZ + (decorRandom() * 2 - 1) * roofOffsetZ
           );
           rooftopUnit.rotation.y = decorRandom() * Math.PI;
           rooftopUnit.castShadow = true;
@@ -613,13 +628,29 @@ ALL_BUILDINGS.forEach((name, idx) => {
         }
       }
 
-      // 全棟をネオンにせず、繁華街らしい建物だけ看板を光らせる。
-      if (decorRandom() < 0.58) {
-        const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[idx % neonColors.length] });
-        neonMat.color.multiplyScalar(2.5);
-        const neonWidth = (finalBox.max.x - finalBox.min.x) * 0.65;
-        const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.5), neonMat);
-        neon.position.set(buildingCenterX, topY + 0.35, finalBox.min.z - 0.01);
+      // 看板は屋上に浮かせず、モデル正面の地上階付近へ置く。
+      if (decorRandom() < 0.58 && topY > CURB_HEIGHT + 1.2) {
+        const neonMat = new THREE.MeshBasicMaterial({
+          color: neonColors[idx % neonColors.length],
+          side: THREE.DoubleSide,
+        });
+        neonMat.color.multiplyScalar(1.8);
+        const front = new THREE.Vector3(0, 0, -1).applyAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          layout.rotation
+        );
+        const buildingWidth = finalBox.max.x - finalBox.min.x;
+        const buildingDepth = finalBox.max.z - finalBox.min.z;
+        const facadeWidth = Math.abs(front.z) > 0.5 ? buildingWidth : buildingDepth;
+        const facadeOffset = Math.abs(front.x) * buildingWidth / 2 + Math.abs(front.z) * buildingDepth / 2;
+        const neonWidth = facadeWidth * 0.55;
+        const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.38), neonMat);
+        neon.position.set(
+          buildingCenterX + front.x * (facadeOffset + 0.015),
+          Math.min(topY - 0.3, CURB_HEIGHT + BUILDING_FACADE_SIGN_HEIGHT),
+          buildingCenterZ + front.z * (facadeOffset + 0.015)
+        );
+        neon.rotation.y = layout.rotation + Math.PI;
         scene.add(neon);
       }
     },
