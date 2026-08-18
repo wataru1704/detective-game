@@ -97,9 +97,52 @@ const ALL_BUILDINGS = [
 ];
 const GRID_COLS = 6;
 const CELL_SIZE = 10; // 区画の間隔（通り幅込み）
-const FOOTPRINT = 3.4; // 各区画で建物が占める大きさ（正方形近似）
-const HEIGHT_BOOST = 1.8; // 建物の高さを誇張して見上げる感じを出す
+const BLOCK_SIZE = 6.4; // 建物側の区画。残りが車道の幅になる
+const MIN_BUILDING_FOOTPRINT = 3.2;
+const MAX_BUILDING_FOOTPRINT = 5.7;
+const BASE_HEIGHT_BOOST = 1.65; // 建物ごとに、この値からさらに高さを変える
+const CITY_LAYOUT_SEED = 1704; // 再読み込みしても同じ街並みを再現するための固定値
 const gridRows = Math.ceil(ALL_BUILDINGS.length / GRID_COLS);
+
+/** 同じseedから、毎回同じ0〜1の乱数列を作る。 */
+function createSeededRandom(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let result = value;
+    result = Math.imul(result ^ (result >>> 15), result | 1);
+    result ^= result + Math.imul(result ^ (result >>> 7), result | 61);
+    return ((result ^ (result >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** 道路は整列させたまま、建物だけ大きさ・後退距離・向きを変える。 */
+function createBuildingLayout(name, index) {
+  const random = createSeededRandom(CITY_LAYOUT_SEED + index * 1013);
+  const col = index % GRID_COLS;
+  const row = Math.floor(index / GRID_COLS);
+  const lotX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+  const lotZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
+
+  let minimumSize = MIN_BUILDING_FOOTPRINT;
+  let maximumSize = MAX_BUILDING_FOOTPRINT;
+  if (name.startsWith("small_")) maximumSize = 4.4;
+  if (name.startsWith("low_wide")) minimumSize = 4.7;
+
+  const footprint = minimumSize + random() * (maximumSize - minimumSize);
+  const availableOffset = Math.max(0, (BLOCK_SIZE - footprint) / 2 - 0.18);
+  const offsetX = (random() * 2 - 1) * availableOffset;
+  const offsetZ = (random() * 2 - 1) * availableOffset;
+  const quarterTurn = Math.floor(random() * 4);
+
+  return {
+    x: lotX + offsetX,
+    z: lotZ + offsetZ,
+    footprint,
+    rotation: quarterTurn * Math.PI / 2,
+    heightBoost: BASE_HEIGHT_BOOST * (0.82 + random() * 0.42),
+  };
+}
 
 // ---------- 地面（車道） ----------
 function makeAsphaltTexture() {
@@ -173,7 +216,7 @@ function makeSidewalkTexture() {
 }
 
 const CURB_HEIGHT = 0.14;
-const SIDEWALK_SIZE = FOOTPRINT + 0.5;
+const SIDEWALK_SIZE = BLOCK_SIZE;
 const sidewalkTopMat = new THREE.MeshStandardMaterial({ map: makeSidewalkTexture(), roughness: 0.95 });
 const curbSideMat = new THREE.MeshStandardMaterial({ color: 0x6a6558, roughness: 0.85 });
 
@@ -308,6 +351,56 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 }
 
 const loader = new GLTFLoader();
+// ---------- 街灯（夜の道路に高さの基準と明暗の差を作る） ----------
+const STREETLIGHT_HEIGHT = 2.8;
+const streetlightPoleGeometry = new THREE.CylinderGeometry(0.055, 0.075, STREETLIGHT_HEIGHT, 8);
+const streetlightArmGeometry = new THREE.BoxGeometry(0.5, 0.055, 0.055);
+const streetlightLampGeometry = new THREE.BoxGeometry(0.22, 0.1, 0.16);
+const streetlightPoleMaterial = new THREE.MeshStandardMaterial({ color: 0x30343a, roughness: 0.55, metalness: 0.7 });
+const streetlightLampMaterial = new THREE.MeshStandardMaterial({
+  color: 0xffd89a,
+  emissive: 0xffb75c,
+  emissiveIntensity: 2.3,
+  roughness: 0.35,
+});
+
+function addStreetlight(x, z, rotation, addLocalLight) {
+  const streetlight = new THREE.Group();
+  const pole = new THREE.Mesh(streetlightPoleGeometry, streetlightPoleMaterial);
+  pole.position.y = STREETLIGHT_HEIGHT / 2;
+  pole.castShadow = true;
+  streetlight.add(pole);
+
+  const arm = new THREE.Mesh(streetlightArmGeometry, streetlightPoleMaterial);
+  arm.position.set(0.2, STREETLIGHT_HEIGHT - 0.08, 0);
+  streetlight.add(arm);
+
+  const lamp = new THREE.Mesh(streetlightLampGeometry, streetlightLampMaterial);
+  lamp.position.set(0.43, STREETLIGHT_HEIGHT - 0.13, 0);
+  streetlight.add(lamp);
+
+  if (addLocalLight) {
+    const light = new THREE.PointLight(0xffc06b, 0.8, 6, 2);
+    light.position.set(0.43, STREETLIGHT_HEIGHT - 0.2, 0);
+    streetlight.add(light);
+  }
+
+  streetlight.position.set(x, CURB_HEIGHT, z);
+  streetlight.rotation.y = rotation;
+  scene.add(streetlight);
+}
+
+for (let row = 0; row < gridRows; row++) {
+  for (let col = 0; col < GRID_COLS; col++) {
+    const index = row * GRID_COLS + col;
+    const lotX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+    const lotZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
+    const side = index % 2 === 0 ? 1 : -1;
+    const x = lotX + side * (BLOCK_SIZE / 2 - 0.1);
+    const z = lotZ + ((row + col) % 2 === 0 ? 1 : -1) * (BLOCK_SIZE / 2 - 0.1);
+    addStreetlight(x, z, side > 0 ? Math.PI : 0, index % 5 === 0);
+  }
+}
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
 // 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材/銅板風など）。
@@ -392,7 +485,7 @@ function makeBrickTexture() {
 }
 
 // 建物ごとに毎回新規生成（1枚ずつ違う窓の点灯パターンにするため）
-function makeWindowGridTexture() {
+function makeWindowGridTexture(random) {
   const cols = 6;
   const rows = 10;
   const cell = 24;
@@ -406,8 +499,8 @@ function makeWindowGridTexture() {
     for (let c = 0; c < cols; c++) {
       const x = c * cell;
       const y = r * cell;
-      const roll = Math.random();
-      ctx.fillStyle = roll < 0.5 ? "#14161c" : windowLitColors[Math.floor(Math.random() * windowLitColors.length)];
+      const roll = random();
+      ctx.fillStyle = roll < 0.5 ? "#14161c" : windowLitColors[Math.floor(random() * windowLitColors.length)];
       ctx.fillRect(x + 3, y + 3, cell - 6, cell - 8);
     }
   }
@@ -419,20 +512,21 @@ function makeWindowGridTexture() {
 
 const panelTexture = makePanelTexture();
 const brickTexture = makeBrickTexture();
+const rooftopUnitGeometry = new THREE.BoxGeometry(0.65, 0.3, 0.5);
+const rooftopUnitMaterial = new THREE.MeshStandardMaterial({ color: 0x42474d, roughness: 0.8, metalness: 0.35 });
+
 
 // ---------- 街のレイアウト（Kenney City Kitの建物30種を格子状に配置） ----------
 ALL_BUILDINGS.forEach((name, idx) => {
-  const col = idx % GRID_COLS;
-  const row = Math.floor(idx / GRID_COLS);
-  const cx = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
-  const cz = (row - (gridRows - 1) / 2) * CELL_SIZE;
-  const w = FOOTPRINT;
-  const d = FOOTPRINT;
+  const layout = createBuildingLayout(name, idx);
+  const styleRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 2027 + 50000);
+  const w = layout.footprint;
+  const d = layout.footprint;
 
   // モデル読み込み中でも当たり判定は成立するよう、まず概算のAABBを入れておく
   const boxEntry = {
-    minX: cx - w / 2, maxX: cx + w / 2,
-    minZ: cz - d / 2, maxZ: cz + d / 2,
+    minX: layout.x - w / 2, maxX: layout.x + w / 2,
+    minZ: layout.z - d / 2, maxZ: layout.z + d / 2,
   };
   buildingBoxes.push(boxEntry);
 
@@ -444,17 +538,17 @@ ALL_BUILDINGS.forEach((name, idx) => {
       const rawBox = new THREE.Box3().setFromObject(model);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
-      const scaleFactor = Math.max(w, d) / Math.max(rawSize.x, rawSize.z);
-      model.scale.set(scaleFactor, scaleFactor * HEIGHT_BOOST, scaleFactor);
+      const scaleFactor = layout.footprint / Math.max(rawSize.x, rawSize.z);
+      model.scale.set(scaleFactor, scaleFactor * layout.heightBoost, scaleFactor);
+      model.rotation.y = layout.rotation;
 
-      const scaledBox = new THREE.Box3().setFromObject(model);
-      const centerX = (scaledBox.min.x + scaledBox.max.x) / 2;
-      const centerZ = (scaledBox.min.z + scaledBox.max.z) / 2;
-      model.position.set(cx - centerX, -scaledBox.min.y, cz - centerZ);
+      const transformedBox = new THREE.Box3().setFromObject(model);
+      const centerX = (transformedBox.min.x + transformedBox.max.x) / 2;
+      const centerZ = (transformedBox.min.z + transformedBox.max.z) / 2;
+      model.position.set(layout.x - centerX, -transformedBox.min.y, layout.z - centerZ);
       // 周期的にならないよう、建物ごとにプリセットをランダムに選ぶ（idxの余りだと同じ並びが繰り返されて単調になる）
-      const preset = materialPresets[Math.floor(Math.random() * materialPresets.length)];
-      const windowsLit = Math.random() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
-      const windowColor = windowLitColors[Math.floor(Math.random() * windowLitColors.length)];
+      const preset = materialPresets[Math.floor(styleRandom() * materialPresets.length)];
+      const windowsLit = styleRandom() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
 
       const bodyTexture = preset.tex === "brick" ? brickTexture : preset.tex === "panel" ? panelTexture : null;
 
@@ -467,7 +561,7 @@ ALL_BUILDINGS.forEach((name, idx) => {
 
           if (matName === "window" || matName === "trim") {
             // 窓は1棟ごとに個別の点灯パターンをテクスチャで持たせる（マスごとに点灯/消灯がバラバラになる）
-            const winTex = makeWindowGridTexture();
+            const winTex = makeWindowGridTexture(styleRandom);
             o.material.map = winTex;
             o.material.emissiveMap = winTex;
             o.material.color.set(0xffffff);
@@ -481,9 +575,9 @@ ALL_BUILDINGS.forEach((name, idx) => {
             const base = matName === "border" ? preset.trim : preset.base;
             const c = new THREE.Color(base);
             c.offsetHSL(
-              (Math.random() - 0.5) * 0.04,
-              (Math.random() - 0.5) * 0.15,
-              (Math.random() - 0.5) * 0.14
+              (styleRandom() - 0.5) * 0.04,
+              (styleRandom() - 0.5) * 0.15,
+              (styleRandom() - 0.5) * 0.14
             );
             o.material.color.copy(c);
             if (bodyTexture) o.material.map = bodyTexture;
@@ -498,13 +592,36 @@ ALL_BUILDINGS.forEach((name, idx) => {
       boxEntry.minZ = finalBox.min.z;
       boxEntry.maxZ = finalBox.max.z;
 
-      // ネオン看板（明るさを1.0以上にして、ブルームで光らせる）
       const topY = finalBox.max.y;
-      const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[idx % neonColors.length] });
-      neonMat.color.multiplyScalar(2.5);
-      const neon = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.7, 0.5), neonMat);
-      neon.position.set(cx, topY + 0.35, cz - d / 2 - 0.01);
-      scene.add(neon);
+      const buildingCenterX = (finalBox.min.x + finalBox.max.x) / 2;
+      const buildingCenterZ = (finalBox.min.z + finalBox.max.z) / 2;
+      const decorRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 3037 + 90000);
+
+      // 室外機や換気設備に見える箱を屋上へ置き、輪郭の単調さを崩す。
+      if (decorRandom() < 0.78) {
+        const unitCount = decorRandom() < 0.35 ? 2 : 1;
+        for (let unitIndex = 0; unitIndex < unitCount; unitIndex++) {
+          const rooftopUnit = new THREE.Mesh(rooftopUnitGeometry, rooftopUnitMaterial);
+          rooftopUnit.position.set(
+            buildingCenterX + (decorRandom() - 0.5) * Math.min(1.5, finalBox.max.x - finalBox.min.x),
+            topY + 0.15,
+            buildingCenterZ + (decorRandom() - 0.5) * Math.min(1.5, finalBox.max.z - finalBox.min.z)
+          );
+          rooftopUnit.rotation.y = decorRandom() * Math.PI;
+          rooftopUnit.castShadow = true;
+          scene.add(rooftopUnit);
+        }
+      }
+
+      // 全棟をネオンにせず、繁華街らしい建物だけ看板を光らせる。
+      if (decorRandom() < 0.58) {
+        const neonMat = new THREE.MeshBasicMaterial({ color: neonColors[idx % neonColors.length] });
+        neonMat.color.multiplyScalar(2.5);
+        const neonWidth = (finalBox.max.x - finalBox.min.x) * 0.65;
+        const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.5), neonMat);
+        neon.position.set(buildingCenterX, topY + 0.35, finalBox.min.z - 0.01);
+        scene.add(neon);
+      }
     },
     undefined,
     (err) => console.error(`モデル読み込み失敗: ${name}`, err)
