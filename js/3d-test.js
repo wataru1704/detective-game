@@ -332,7 +332,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 
     // 南北の通り（Z方向）を、東西に渡る横断歩道。交差点の南北の入口2箇所に配置
     [-1, 1].forEach((sign) => {
-      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
       const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_LENGTH, CROSSWALK_DEPTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x, 0.02, z + sign * half);
@@ -341,7 +341,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 
     // 東西の通り（X方向）を、南北に渡る横断歩道。交差点の東西の入口2箇所に配置
     [-1, 1].forEach((sign) => {
-      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
       const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_DEPTH, CROSSWALK_LENGTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x + sign * half, 0.02, z);
