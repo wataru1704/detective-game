@@ -304,7 +304,7 @@ function makeCrosswalkTexture(alongV) {
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, size, size);
-  ctx.fillStyle = "rgba(180,172,150,0.55)";
+  ctx.fillStyle = "rgba(215,212,200,0.78)";
   const stripes = 5;
   const stripeW = size / (stripes * 2);
   for (let i = 0; i < stripes; i++) {
@@ -320,19 +320,19 @@ const crosswalkTexH = makeCrosswalkTexture(false);
 const crosswalkTexV = makeCrosswalkTexture(true);
 const crosswalkSize = CELL_SIZE - SIDEWALK_SIZE; // 通りの幅
 const CROSSWALK_DEPTH = Math.min(1.1, crosswalkSize * 0.8); // 横断歩道帯の奥行き
-// 帯の長さ（渡る方向と垂直な向きの幅）は通り幅いっぱいにせず、
-// 交差点の角で東西用・南北用の帯同士が重ならないよう内側に収める
-const CROSSWALK_LENGTH = crosswalkSize - CROSSWALK_DEPTH * 2;
+// 縞を車道のほぼ端まで伸ばし、4方向の帯は交差点の外側へ離して重なりを防ぐ
+// 歩道との間にはわずかな余白を残す
+const CROSSWALK_LENGTH = crosswalkSize - 0.28;
 
 for (let c = 0; c < GRID_COLS - 1; c++) {
   for (let r = 0; r < gridRows - 1; r++) {
     const x = (c + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE;
     const z = (r + 0.5 - (gridRows - 1) / 2) * CELL_SIZE;
-    const half = crosswalkSize / 2 - CROSSWALK_DEPTH / 2;
+    const half = crosswalkSize / 2 + CROSSWALK_DEPTH / 2 + 0.12;
 
     // 南北の通り（Z方向）を、東西に渡る横断歩道。交差点の南北の入口2箇所に配置
     [-1, 1].forEach((sign) => {
-      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
       const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_LENGTH, CROSSWALK_DEPTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x, 0.02, z + sign * half);
@@ -341,7 +341,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 
     // 東西の通り（X方向）を、南北に渡る横断歩道。交差点の東西の入口2箇所に配置
     [-1, 1].forEach((sign) => {
-      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexV, transparent: true, depthWrite: false, roughness: 0.9 });
+      const mat = new THREE.MeshStandardMaterial({ map: crosswalkTexH, transparent: true, depthWrite: false, roughness: 0.9 });
       const cw = new THREE.Mesh(new THREE.PlaneGeometry(CROSSWALK_DEPTH, CROSSWALK_LENGTH), mat);
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x + sign * half, 0.02, z);
