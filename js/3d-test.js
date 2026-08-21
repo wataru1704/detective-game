@@ -1,7 +1,7 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260821e";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x889ca6);
@@ -811,10 +811,12 @@ function makeJapaneseFacadeSignTexture(index) {
 
 // ---------- 街のレイアウト（建物・月極駐車場・空き地を混在させる） ----------
 const buildingDiagnostics = [];
+const facadeSignDiagnostics = [];
 window.__buildingDiagnostics = buildingDiagnostics;
 renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length);
 renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
+renderer.domElement.dataset.facadeSignsPlaced = "0";
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
   if (OPEN_LOT_INDICES.includes(idx)) return;
@@ -962,6 +964,18 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
         );
         neon.rotation.y = layout.rotation + Math.PI;
         scene.add(neon);
+        neon.updateMatrixWorld(true);
+        const signBox = new THREE.Box3().setFromObject(neon);
+        facadeSignDiagnostics.push({
+          index: idx,
+          blockIndex: layout.blockIndex,
+          minX: signBox.min.x,
+          maxX: signBox.max.x,
+          minZ: signBox.min.z,
+          maxZ: signBox.max.z,
+        });
+        renderer.domElement.dataset.facadeSignsPlaced = String(facadeSignDiagnostics.length);
+        renderer.domElement.dataset.facadeSignDimensions = JSON.stringify(facadeSignDiagnostics);
       }
     },
     undefined,
@@ -990,10 +1004,11 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // スキン付きモデルの骨をワールド座標で実測した高さを基準に、人物を1.75mへ統一する。
-    const PLAYER_TARGET_HEIGHT = 1.75;
+    // 入口・車・街路設備との画面上の比率を優先し、従来1.75mの80%へ縮小する。
+    const PLAYER_TARGET_HEIGHT = 1.4;
     const ADVENTURER_RIG_HEIGHT = 1.8085184492;
     const CHAR_SCALE = PLAYER_TARGET_HEIGHT / ADVENTURER_RIG_HEIGHT;
+    renderer.domElement.dataset.playerTargetHeight = String(PLAYER_TARGET_HEIGHT);
     model.scale.setScalar(CHAR_SCALE);
     model.position.set(0, 0, 0); // Rootボーンが既に接地面(y=0)にある
 
@@ -1165,7 +1180,7 @@ function updatePlayer(dt) {
 // ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
 const CAMERA_DIST = 4.5;
 const CAMERA_HEIGHT = 2.6;
-const CAMERA_TARGET_HEIGHT = 1.05;
+const CAMERA_TARGET_HEIGHT = 0.84;
 function updateCamera() {
   const p = player.position;
   const offsetX = Math.sin(cameraYaw) * CAMERA_DIST;
