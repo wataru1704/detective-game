@@ -1,7 +1,7 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260821f";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260821g";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x889ca6);

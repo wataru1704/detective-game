@@ -339,7 +339,7 @@ export function createJapaneseCityDetails({
 
   // ガードレールは主要道路の一部だけに置き、道路沿いの単調さを避ける。
   [-1, 1].forEach((side) => {
-    [-18, 16].forEach((z) => {
+    [-18, 18].forEach((z) => {
       for (let segment = -1; segment <= 1; segment++) {
         const segmentZ = z + segment * 1.75;
         addBox(
@@ -399,7 +399,7 @@ export function createJapaneseCityDetails({
 
   // 路肩や空地だけに雑草を置き、均等な装飾にならないようにする。
   const weedPositions = [
-    [mainRoadX - 3.62, -30], [mainRoadX + 3.7, -11], [mainRoadX - 3.7, 2], [mainRoadX + 3.65, 26], [-20, shoppingStreetZ - 3.65],
+    [mainRoadX - 3.62, -30], [mainRoadX + 3.7, -16.2], [mainRoadX - 3.7, 2], [mainRoadX + 3.65, 26], [-20, shoppingStreetZ - 3.65],
     [18, shoppingStreetZ + 3.7], [31, shoppingStreetZ - 3.6],
   ];
   weedPositions.forEach(([x, z], index) => {
