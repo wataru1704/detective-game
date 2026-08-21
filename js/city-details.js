@@ -15,6 +15,7 @@ export function createJapaneseCityDetails({
   const details = new THREE.Group();
   details.name = "JapaneseCityDetails";
   scene.add(details);
+  const cityDetailDiagnostics = { signals: [], signs: [] };
 
   const roadWidth = cellSize - blockSize;
   const roadHalfWidth = roadWidth / 2;
@@ -247,15 +248,15 @@ export function createJapaneseCityDetails({
   function addTrafficSignal(intersectionZ, direction) {
     const group = new THREE.Group();
     const side = direction;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 4.7, 10), galvanizedMaterial);
-    pole.position.y = 2.35;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 3.6, 10), galvanizedMaterial);
+    pole.position.y = 1.8;
     pole.castShadow = true;
     group.add(pole);
     const arm = new THREE.Mesh(new THREE.BoxGeometry(3.05, 0.1, 0.1), galvanizedMaterial);
-    arm.position.set(-side * 1.46, 4.35, 0);
+    arm.position.set(-side * 1.46, 3.3, 0);
     group.add(arm);
     const housing = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.34, 0.28), darkMetalMaterial);
-    housing.position.set(-side * 2.65, 4.25, 0);
+    housing.position.set(-side * 2.65, 3.2, 0);
     group.add(housing);
     const signalColors = [0x3b1918, 0x806b19, 0x1e6c54];
     signalColors.forEach((color, index) => {
@@ -267,7 +268,7 @@ export function createJapaneseCityDetails({
           emissiveIntensity: index === 2 ? 1.1 : 0,
         })
       );
-      lens.position.set(-side * (2.92 - index * 0.27), 4.25, side > 0 ? -0.145 : 0.145);
+      lens.position.set(-side * (2.92 - index * 0.27), 3.2, side > 0 ? -0.145 : 0.145);
       lens.rotation.y = side > 0 ? Math.PI : 0;
       group.add(lens);
     });
@@ -279,6 +280,18 @@ export function createJapaneseCityDetails({
       intersectionZ + side * (roadHalfWidth + cornerClearance)
     );
     details.add(group);
+    group.updateMatrixWorld(true);
+    const signalBox = new THREE.Box3().setFromObject(group);
+    cityDetailDiagnostics.signals.push({
+      intersectionZ,
+      direction,
+      minX: signalBox.min.x,
+      maxX: signalBox.max.x,
+      minY: signalBox.min.y,
+      maxY: signalBox.max.y,
+      minZ: signalBox.min.z,
+      maxZ: signalBox.max.z,
+    });
   }
   [-cellSize / 2, cellSize / 2].forEach((z) => {
     addTrafficSignal(z, -1);
@@ -366,7 +379,13 @@ export function createJapaneseCityDetails({
     new THREE.PlaneGeometry(2.3, 0.8),
     new THREE.MeshStandardMaterial({ map: shoppingTexture, roughness: 0.88, side: THREE.DoubleSide })
   );
-  shoppingSign.position.set(mainRoadX - roadHalfWidth - 0.35, curbHeight + 2.7, shoppingStreetZ - roadHalfWidth - 0.45);
+  const signRoadClearance = 0.3;
+  const shoppingSignHalfWidth = 1.15;
+  shoppingSign.position.set(
+    mainRoadX - roadHalfWidth - 0.35,
+    curbHeight + 2.7,
+    shoppingStreetZ - roadHalfWidth - shoppingSignHalfWidth - signRoadClearance
+  );
   shoppingSign.rotation.y = Math.PI / 2;
   details.add(shoppingSign);
   addBox(
@@ -379,6 +398,16 @@ export function createJapaneseCityDetails({
     new THREE.Vector3(shoppingSign.position.x, curbHeight + 1.28, shoppingSign.position.z + 0.83),
     darkMetalMaterial
   );
+
+  cityDetailDiagnostics.signs.push({
+    type: "shopping-street",
+    minX: shoppingSign.position.x - 0.045,
+    maxX: shoppingSign.position.x + 0.045,
+    minZ: shoppingSign.position.z - shoppingSignHalfWidth,
+    maxZ: shoppingSign.position.z + shoppingSignHalfWidth,
+  });
+  const canvas = document.querySelector("canvas");
+  if (canvas) canvas.dataset.cityDetailDiagnostics = JSON.stringify(cityDetailDiagnostics);
 
   return { details, cityHalfWidth, cityHalfDepth };
 }
