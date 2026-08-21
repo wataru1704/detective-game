@@ -3,10 +3,9 @@ import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822a";
 import { createVisualQa } from "./visual-qa.js?v=20260822a";
+import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x889ca6);
-scene.fog = new THREE.Fog(0x889ca6, 38, 118);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 220);
 
@@ -20,58 +19,8 @@ renderer.toneMappingExposure = 0.95;
 document.body.appendChild(renderer.domElement);
 
 
-// ---------- ライト ----------
-scene.add(new THREE.HemisphereLight(0xc7d8df, 0x5f594e, 2.0));
-const sun = new THREE.DirectionalLight(0xffd3a0, 2.8);
-sun.position.set(-38, 54, -24);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -62;
-sun.shadow.camera.right = 62;
-sun.shadow.camera.top = 62;
-sun.shadow.camera.bottom = -62;
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 120;
-sun.shadow.bias = -0.0015;
-scene.add(sun);
-
-// ---------- 夕方の空（自然光と大気遠近が分かる明るさ） ----------
-function makeSkyGradientTexture() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 2;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  const grad = ctx.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#6f8797");
-  grad.addColorStop(0.55, "#9aabb1");
-  grad.addColorStop(1, "#d3a47e");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 2, 256);
-  return new THREE.CanvasTexture(canvas);
-}
-const sky = new THREE.Mesh(
-  new THREE.SphereGeometry(200, 24, 24),
-  new THREE.MeshBasicMaterial({ map: makeSkyGradientTexture(), side: THREE.BackSide, fog: false })
-);
-scene.add(sky);
-
-const STAR_COUNT = 0;
-const starPositions = new Float32Array(STAR_COUNT * 3);
-for (let i = 0; i < STAR_COUNT; i++) {
-  const r = 180;
-  const theta = Math.random() * Math.PI * 2;
-  const phi = Math.random() * Math.PI * 0.5; // 上半分のみ
-  starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-  starPositions[i * 3 + 1] = r * Math.cos(phi) + 15;
-  starPositions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
-}
-const starGeo = new THREE.BufferGeometry();
-starGeo.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-const stars = new THREE.Points(
-  starGeo,
-  new THREE.PointsMaterial({ color: 0xffffff, size: 1.3, sizeAttenuation: false, fog: false, transparent: true, opacity: 0.85 })
-);
-scene.add(stars);
+const atmosphereDiagnostics = createJapaneseAtmosphere({ THREE, scene, renderer });
+renderer.domElement.dataset.atmosphereDiagnostics = JSON.stringify(atmosphereDiagnostics);
 
 // ---------- 街のレイアウト定数（建物・地面の両方で使うので先に定義） ----------
 const BASE_BUILDINGS = [
