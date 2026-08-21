@@ -4,6 +4,7 @@ import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822a";
 import { createVisualQa } from "./visual-qa.js?v=20260822a";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
+import { createBuildingDetailSystem } from "./building-details.js?v=20260822i";
 
 const scene = new THREE.Scene();
 
@@ -868,6 +869,14 @@ renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
 renderer.domElement.dataset.buildingScaleLimits = JSON.stringify(Object.fromEntries(BUILDING_SCALE_LIMITS));
 renderer.domElement.dataset.facadeSignsPlaced = "0";
+const buildingDetailSystem = createBuildingDetailSystem({
+  THREE,
+  scene,
+  curbHeight: CURB_HEIGHT,
+  maxBuildings: TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length,
+  recordObstacle: recordRoadsideObstacle,
+  isRoadwayClear: (box) => roadCorridorsIntersectingBox(box).length === 0,
+});
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
   if (OPEN_LOT_INDICES.includes(idx)) return;
@@ -966,6 +975,16 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       recordRoadsideObstacle(`building:${idx}`, finalBox);
       renderer.domElement.dataset.buildingsPlaced = String(buildingDiagnostics.length);
       renderer.domElement.dataset.buildingDimensions = JSON.stringify(buildingDiagnostics);
+
+      const detailRandom = createSeededRandom(CITY_LAYOUT_SEED + idx * 4099 + 120000);
+      const detailDiagnostics = buildingDetailSystem.addBuilding({
+        index: idx,
+        box: finalBox,
+        rotation: layout.rotation,
+        commercial: COMMERCIAL_TOWER_SLOTS.has(idx),
+        random: detailRandom,
+      });
+      renderer.domElement.dataset.buildingDetailDiagnostics = JSON.stringify(detailDiagnostics);
 
       const topY = finalBox.max.y;
       const buildingCenterX = (finalBox.min.x + finalBox.max.x) / 2;
