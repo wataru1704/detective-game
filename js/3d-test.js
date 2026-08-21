@@ -1,7 +1,8 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260821g";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260822a";
+import { createVisualQa } from "./visual-qa.js?v=20260822a";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x889ca6);
@@ -1298,6 +1299,7 @@ function updateCamera() {
 const fpsEl = document.getElementById("fps");
 let frameCount = 0;
 let fpsAccum = 0;
+const visualQa = createVisualQa({ renderer, camera });
 
 // ---------- ループ ----------
 let lastTime = performance.now();
@@ -1305,10 +1307,15 @@ function loop(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
 
-  updatePlayer(dt);
-  updateCamera();
+  if (!visualQa.enabled) {
+    updatePlayer(dt);
+    updateCamera();
+  } else {
+    visualQa.applyFixedCamera();
+  }
   if (mixer) mixer.update(dt);
   renderer.render(scene, camera);
+  visualQa.afterRender(now);
 
   frameCount++;
   fpsAccum += dt;
