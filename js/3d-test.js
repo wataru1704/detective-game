@@ -88,11 +88,21 @@ const SUBURBAN_BUILDINGS = [
   "suburban_k", "suburban_n", "suburban_r", "suburban_u",
 ];
 const BUILDING_ASSETS = [...BASE_BUILDINGS, ...SUBURBAN_BUILDINGS];
-const PROPORTIONATE_LOW_REPLACEMENTS = [
+// モデル名の「large」は高さではなく横幅を表す場合がある。
+// 人物基準で実測して10〜16mになったモデルだけを、駅前・主要道路沿いへ配置する。
+const COMMERCIAL_TOWER_SLOTS = new Set([
+  0, 6, 8, 9, 11, 12,
+  18, 20, 21, 23, 24, 26,
+  27, 29, 30, 32, 33, 35,
+  38, 42, 44, 45, 47, 48,
+]);
+const MEASURED_TALL_BUILDINGS = [
+  "skyscraperB", "skyscraperC", "skyscraperD", "skyscraperF",
+];
+const MEASURED_LOW_RISE_BUILDINGS = [
   "low_wideA", "low_wideB",
-  "small_buildingA", "small_buildingB", "small_buildingC",
-  "small_buildingD", "small_buildingE", "small_buildingF",
-  "suburban_h", "suburban_u",
+  "small_buildingC", "small_buildingD", "small_buildingF",
+  "large_buildingC", "large_buildingD", "large_buildingE", "large_buildingG",
 ];
 
 // 以前は8mの敷地を6m道路が一軒ごとに囲み、街の約67%が道路だった。
@@ -111,10 +121,10 @@ const OPEN_LOT_INDICES = [5, 16, 25, 36, 43, 50];
 function getBuildingMaxHeight(name) {
   if (name.startsWith("suburban_")) return 8.5;
   if (name.startsWith("low_building")) return 7.0;
-  if (name.startsWith("low_wide")) return 7.0;
-  if (name.startsWith("small_building")) return 9.0;
-  if (name.startsWith("large_building")) return 16.0;
-  if (name.startsWith("skyscraper")) return 30.0;
+  if (name.startsWith("low_wide")) return 8.5;
+  if (name.startsWith("small_building")) return 11.5;
+  if (name.startsWith("large_building")) return 22.0;
+  if (name.startsWith("skyscraper")) return 40.0;
   return 12.0;
 }
 
@@ -174,14 +184,13 @@ function createBuildingLayout(name, index) {
 }
 
 function buildingNameForSlot(index) {
-  // 新旧のモデルが固まらないよう、固定seedの順番で循環させる。
-  const stride = 11;
-  const candidate = BUILDING_ASSETS[(index * stride + Math.floor(index / BUILDINGS_PER_BLOCK) * 3) % BUILDING_ASSETS.length];
-  // low_building群は幅1.56〜2mに対して高さ7mとなるため、比率の自然な低層モデルへ置き換える。
-  if (candidate.startsWith("low_building")) {
-    return PROPORTIONATE_LOW_REPLACEMENTS[index % PROPORTIONATE_LOW_REPLACEMENTS.length];
+  const blockIndex = Math.floor(index / BUILDINGS_PER_BLOCK);
+  if (COMMERCIAL_TOWER_SLOTS.has(index)) {
+    return MEASURED_TALL_BUILDINGS[(index + blockIndex) % MEASURED_TALL_BUILDINGS.length];
   }
-  return candidate;
+
+  // 低層側も実測3.5m未満のモデルを避け、人物より少し高いだけの建物を作らない。
+  return MEASURED_LOW_RISE_BUILDINGS[(index * 5 + blockIndex) % MEASURED_LOW_RISE_BUILDINGS.length];
 }
 
 // ---------- 地面（車道） ----------
@@ -800,6 +809,10 @@ function makeJapaneseFacadeSignTexture(index) {
 }
 
 // ---------- 街のレイアウト（建物・月極駐車場・空き地を混在させる） ----------
+const buildingDiagnostics = [];
+window.__buildingDiagnostics = buildingDiagnostics;
+renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length);
+renderer.domElement.dataset.buildingsPlaced = "0";
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
   if (OPEN_LOT_INDICES.includes(idx)) return;
@@ -879,6 +892,22 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       boxEntry.maxX = finalBox.max.x;
       boxEntry.minZ = finalBox.min.z;
       boxEntry.maxZ = finalBox.max.z;
+      const finalSize = new THREE.Vector3();
+      finalBox.getSize(finalSize);
+      buildingDiagnostics.push({
+        index: idx,
+        name,
+        zone: COMMERCIAL_TOWER_SLOTS.has(idx) ? "commercial" : "low-rise",
+        width: finalSize.x,
+        height: finalSize.y,
+        depth: finalSize.z,
+        minX: finalBox.min.x,
+        maxX: finalBox.max.x,
+        minZ: finalBox.min.z,
+        maxZ: finalBox.max.z,
+      });
+      renderer.domElement.dataset.buildingsPlaced = String(buildingDiagnostics.length);
+      renderer.domElement.dataset.buildingDimensions = JSON.stringify(buildingDiagnostics);
 
       const topY = finalBox.max.y;
       const buildingCenterX = (finalBox.min.x + finalBox.max.x) / 2;
