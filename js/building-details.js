@@ -39,6 +39,7 @@ export function createBuildingDetailSystem({
   maxBuildings,
   recordObstacle,
   isRoadwayClear = () => true,
+  surfaceMaps,
 }) {
   const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x28343a, roughness: 0.42, metalness: 0.5 });
   const glassMaterial = new THREE.MeshStandardMaterial({
@@ -54,6 +55,19 @@ export function createBuildingDetailSystem({
   const pipeMaterial = new THREE.MeshStandardMaterial({ color: 0x767b79, roughness: 0.72, metalness: 0.48 });
   const unitMaterial = new THREE.MeshStandardMaterial({ color: 0xacaea8, roughness: 0.78, metalness: 0.15 });
   const grilleMaterial = new THREE.MeshStandardMaterial({ color: 0x515957, roughness: 0.72, metalness: 0.42 });
+  const applySurface = (material, pair, strength) => {
+    if (!pair) return;
+    material.normalMap = pair.normalMap;
+    material.roughnessMap = pair.roughnessMap;
+    material.normalScale.set(strength, strength);
+  };
+  applySurface(doorMaterial, surfaceMaps?.metal, 0.12);
+  applySurface(glassMaterial, surfaceMaps?.metal, 0.035);
+  applySurface(thresholdMaterial, surfaceMaps?.concrete, 0.08);
+  applySurface(canopyMaterial, surfaceMaps?.metal, 0.13);
+  applySurface(pipeMaterial, surfaceMaps?.metal, 0.1);
+  applySurface(unitMaterial, surfaceMaps?.metal, 0.09);
+  applySurface(grilleMaterial, surfaceMaps?.metal, 0.14);
 
   const doors = createInstancedPart(
     THREE, scene, "scaled-building-doors",

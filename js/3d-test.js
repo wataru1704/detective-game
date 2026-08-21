@@ -1,10 +1,11 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260822a";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
 import { createVisualQa } from "./visual-qa.js?v=20260822a";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
-import { createBuildingDetailSystem } from "./building-details.js?v=20260822i";
+import { createBuildingDetailSystem } from "./building-details.js?v=20260822l";
+import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
 
 const scene = new THREE.Scene();
 
@@ -22,6 +23,8 @@ document.body.appendChild(renderer.domElement);
 
 const atmosphereDiagnostics = createJapaneseAtmosphere({ THREE, scene, renderer });
 renderer.domElement.dataset.atmosphereDiagnostics = JSON.stringify(atmosphereDiagnostics);
+const surfaceMaps = createProceduralSurfaceMaps(THREE);
+renderer.domElement.dataset.surfaceMapDiagnostics = JSON.stringify(window.__surfaceMapDiagnostics);
 
 // ---------- 街のレイアウト定数（建物・地面の両方で使うので先に定義） ----------
 const BASE_BUILDINGS = [
@@ -238,25 +241,35 @@ function makeAsphaltTexture() {
   canvas.width = px;
   canvas.height = px;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#1c1f27";
+  ctx.fillStyle = "#3d4143";
   ctx.fillRect(0, 0, px, px);
   for (let i = 0; i < 1800; i++) {
     const x = Math.random() * px;
     const y = Math.random() * px;
-    const v = 14 + Math.random() * 10;
-    ctx.fillStyle = `rgba(${v + 10},${v + 12},${v + 18},0.16)`;
+    const v = 48 + Math.random() * 18;
+    ctx.fillStyle = `rgba(${v},${v + 2},${v + 4},0.28)`;
     ctx.fillRect(x, y, 2, 2);
   }
-  // 補修跡っぽいまだらなパッチを少し混ぜて、繰り返しが目立ちにくいようにする
+  // 補修跡は矩形ではなく不規則な輪郭にし、同じテクスチャの反復を目立ちにくくする。
   for (let i = 0; i < 6; i++) {
     const x = Math.random() * px;
     const y = Math.random() * px;
     const w = 18 + Math.random() * 40;
     const h = 14 + Math.random() * 28;
-    ctx.fillStyle = "rgba(40,42,50,0.22)";
-    ctx.fillRect(x, y, w, h);
+    ctx.beginPath();
+    for (let point = 0; point < 10; point++) {
+      const angle = point / 10 * Math.PI * 2;
+      const edge = 0.78 + Math.sin(i * 3.1 + point * 2.3) * 0.18;
+      const px2 = x + Math.cos(angle) * w / 2 * edge;
+      const py2 = y + Math.sin(angle) * h / 2 * edge;
+      if (point === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(24,26,28,0.28)";
+    ctx.fill();
   }
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
@@ -267,7 +280,13 @@ const GROUND_SIZE = CELL_SIZE * GROUND_TILES;
 const asphaltTex = makeAsphaltTexture();
 asphaltTex.repeat.set(GROUND_TILES * 3, GROUND_TILES * 3); // 目を細かくして繰り返しを目立ちにくくする
 const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE);
-const groundMat = new THREE.MeshStandardMaterial({ map: asphaltTex, roughness: 0.9 });
+const groundMat = new THREE.MeshStandardMaterial({
+  map: asphaltTex,
+  normalMap: surfaceMaps.asphalt.normalMap,
+  roughnessMap: surfaceMaps.asphalt.roughnessMap,
+  normalScale: new THREE.Vector2(0.16, 0.16),
+  roughness: 0.96,
+});
 const ground = new THREE.Mesh(groundGeo, groundMat);
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
@@ -280,7 +299,7 @@ function makeSidewalkTexture() {
   canvas.width = px;
   canvas.height = px;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#57544c";
+  ctx.fillStyle = "#7b786f";
   ctx.fillRect(0, 0, px, px);
   for (let i = 0; i < 350; i++) {
     const x = Math.random() * px;
@@ -297,6 +316,7 @@ function makeSidewalkTexture() {
     ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, px); ctx.stroke();
   }
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
@@ -304,8 +324,24 @@ function makeSidewalkTexture() {
 
 const CURB_HEIGHT = 0.14;
 const SIDEWALK_SIZE = BLOCK_SIZE;
-const sidewalkTopMat = new THREE.MeshStandardMaterial({ map: makeSidewalkTexture(), roughness: 0.95 });
-const curbSideMat = new THREE.MeshStandardMaterial({ color: 0x6a6558, roughness: 0.85 });
+const sidewalkNormalMap = surfaceMaps.concrete.normalMap.clone();
+const sidewalkRoughnessMap = surfaceMaps.concrete.roughnessMap.clone();
+sidewalkNormalMap.repeat.set(12, 12);
+sidewalkRoughnessMap.repeat.copy(sidewalkNormalMap.repeat);
+const sidewalkTopMat = new THREE.MeshStandardMaterial({
+  map: makeSidewalkTexture(),
+  normalMap: sidewalkNormalMap,
+  roughnessMap: sidewalkRoughnessMap,
+  normalScale: new THREE.Vector2(0.1, 0.1),
+  roughness: 0.96,
+});
+const curbSideMat = new THREE.MeshStandardMaterial({
+  color: 0x77736a,
+  normalMap: surfaceMaps.concrete.normalMap,
+  roughnessMap: surfaceMaps.concrete.roughnessMap,
+  normalScale: new THREE.Vector2(0.08, 0.08),
+  roughness: 0.9,
+});
 
 for (let row = 0; row < gridRows; row++) {
   for (let col = 0; col < GRID_COLS; col++) {
@@ -408,7 +444,16 @@ function makeDashTexture(alongV) {
   } else {
     ctx.fillRect(10, 4, 26, h - 8);
   }
+  ctx.globalCompositeOperation = "destination-out";
+  for (let i = 0; i < 7; i++) {
+    const x = (i * 17 + (alongV ? 3 : 11)) % w;
+    const y = (i * 29 + (alongV ? 13 : 5)) % h;
+    ctx.fillStyle = `rgba(0,0,0,${0.12 + (i % 3) * 0.08})`;
+    ctx.fillRect(x, y, 2 + (i % 2) * 3, 2 + ((i + 1) % 2) * 4);
+  }
+  ctx.globalCompositeOperation = "source-over";
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
@@ -476,7 +521,17 @@ function makeCrosswalkTexture(alongV) {
       ctx.fillRect(i * stripeW * 2, 0, stripeW, size);
     }
   }
-  return new THREE.CanvasTexture(canvas);
+  ctx.globalCompositeOperation = "destination-out";
+  for (let i = 0; i < 22; i++) {
+    const x = (i * 23 + (alongV ? 9 : 3)) % size;
+    const y = (i * 37 + (alongV ? 5 : 17)) % size;
+    ctx.fillStyle = `rgba(0,0,0,${0.1 + (i % 4) * 0.05})`;
+    ctx.fillRect(x, y, 2 + (i % 4), 1 + ((i + 2) % 4));
+  }
+  ctx.globalCompositeOperation = "source-over";
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
 }
 const crosswalkTexH = makeCrosswalkTexture(false);
 const crosswalkTexV = makeCrosswalkTexture(true);
@@ -695,6 +750,7 @@ createJapaneseCityDetails({
   blockSize: BLOCK_SIZE,
   curbHeight: CURB_HEIGHT,
   openLotIndices: [],
+  surfaceMaps,
 });
 
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
@@ -746,6 +802,7 @@ function makePanelTexture() {
     ctx.fillRect(x, y, 3, 3);
   }
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   // 雨だれと地面付近の黒ずみを足し、均一に新品へ見えるのを避ける。
   for (let i = 0; i < 18; i++) {
     const x = Math.random() * size;
@@ -765,6 +822,7 @@ function makePanelTexture() {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(1, 4);
+  tex.needsUpdate = true;
   return tex;
 }
 
@@ -790,6 +848,7 @@ function makeBrickTexture() {
     row++;
   }
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 6);
@@ -797,6 +856,7 @@ function makeBrickTexture() {
     ctx.fillStyle = `rgba(55,45,38,${0.03 + Math.random() * 0.09})`;
     ctx.fillRect(Math.random() * size, Math.random() * size, 8 + Math.random() * 30, 3 + Math.random() * 12);
   }
+  tex.needsUpdate = true;
   return tex;
 }
 
@@ -821,6 +881,7 @@ function makeWindowGridTexture(random) {
     }
   }
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   return tex;
@@ -876,6 +937,7 @@ const buildingDetailSystem = createBuildingDetailSystem({
   maxBuildings: TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length,
   recordObstacle: recordRoadsideObstacle,
   isRoadwayClear: (box) => roadCorridorsIntersectingBox(box).length === 0,
+  surfaceMaps,
 });
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
@@ -933,8 +995,15 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
             o.material.color.set(0xffffff);
             o.material.emissive = new THREE.Color(0xffffff);
             o.material.emissiveIntensity = windowsLit ? 1.1 : 0.15;
+            o.material.roughness = 0.34;
+            o.material.metalness = 0.08;
           } else if (matName === "door") {
             o.material.color.setHex(preset.door);
+            o.material.normalMap = surfaceMaps.metal.normalMap;
+            o.material.roughnessMap = surfaceMaps.metal.roughnessMap;
+            o.material.normalScale.set(0.12, 0.12);
+            o.material.roughness = 0.58;
+            o.material.metalness = 0.32;
           } else {
             // 本体（border, _defaultMat等）: プリセット色＋テクスチャ（レンガ/パネル目地）＋
             // メッシュごとの色相・彩度・明るさのばらつきで、のっぺりした単色を避ける
@@ -947,7 +1016,12 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
             );
             o.material.color.copy(c);
             if (bodyTexture) o.material.map = bodyTexture;
+            o.material.normalMap = surfaceMaps.facade.normalMap;
+            o.material.roughnessMap = surfaceMaps.facade.roughnessMap;
+            o.material.normalScale.set(bodyTexture ? 0.055 : 0.025, bodyTexture ? 0.055 : 0.025);
+            o.material.roughness = bodyTexture ? 0.9 : 0.78;
           }
+          o.material.needsUpdate = true;
         }
       });
       scene.add(model);
