@@ -11,6 +11,7 @@ export function createJapaneseCityDetails({
   blockSize,
   curbHeight,
   openLotIndices,
+  surfaceMaps,
 }) {
   const details = new THREE.Group();
   details.name = "JapaneseCityDetails";
@@ -63,17 +64,64 @@ export function createJapaneseCityDetails({
     if (corridors.length > 0) cityDetailDiagnostics.roadIntrusions.push({ label, corridors });
   }
 
-  const asphaltMaterial = new THREE.MeshStandardMaterial({ color: 0x45484a, roughness: 0.98 });
-  const repairedAsphaltMaterials = [
-    new THREE.MeshStandardMaterial({ color: 0x505456, roughness: 1, transparent: true, opacity: 0.58 }),
-    new THREE.MeshStandardMaterial({ color: 0x67696a, roughness: 1, transparent: true, opacity: 0.48 }),
+  const surfaceOptions = (pair, strength) => pair ? {
+    normalMap: pair.normalMap,
+    roughnessMap: pair.roughnessMap,
+    normalScale: new THREE.Vector2(strength, strength),
+  } : {};
+  function makeRepairTexture(seed, color) {
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, size, size);
+    context.beginPath();
+    for (let point = 0; point < 14; point++) {
+      const angle = point / 14 * Math.PI * 2;
+      const radius = size * (0.36 + Math.sin(seed * 1.73 + point * 2.41) * 0.055);
+      const x = size / 2 + Math.cos(angle) * radius;
+      const y = size / 2 + Math.sin(angle) * radius * 0.82;
+      if (point === 0) context.moveTo(x, y); else context.lineTo(x, y);
+    }
+    context.closePath();
+    context.fillStyle = color;
+    context.fill();
+    context.globalCompositeOperation = "destination-out";
+    for (let mark = 0; mark < 22; mark++) {
+      const x = (mark * 47 + seed * 19) % size;
+      const y = (mark * 31 + seed * 13) % size;
+      context.fillStyle = `rgba(0,0,0,${0.05 + (mark % 4) * 0.04})`;
+      context.fillRect(x, y, 2 + mark % 7, 1 + mark % 4);
+    }
+    context.globalCompositeOperation = "source-over";
+    context.strokeStyle = "rgba(25,27,28,0.35)";
+    context.lineWidth = 1.2;
+    context.beginPath();
+    context.moveTo(22 + seed * 2, 72);
+    context.lineTo(48, 58 + seed);
+    context.lineTo(67, 65);
+    context.lineTo(94, 49 + seed * 2);
+    context.stroke();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+  const repairTextures = [
+    makeRepairTexture(1, "rgba(48,51,52,0.82)"),
+    makeRepairTexture(2, "rgba(70,72,70,0.72)"),
   ];
-  const concreteMaterial = new THREE.MeshStandardMaterial({ color: 0x8b8980, roughness: 0.95 });
-  const fadedWhiteMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b7aa, roughness: 0.9 });
-  const darkMetalMaterial = new THREE.MeshStandardMaterial({ color: 0x3d4143, roughness: 0.65, metalness: 0.55 });
-  const galvanizedMaterial = new THREE.MeshStandardMaterial({ color: 0x999b96, roughness: 0.62, metalness: 0.45 });
-  const utilityPoleMaterial = new THREE.MeshStandardMaterial({ color: 0x4d4b46, roughness: 0.95 });
-  const rustMaterial = new THREE.MeshStandardMaterial({ color: 0x6d4938, roughness: 0.95 });
+  const asphaltMaterial = new THREE.MeshStandardMaterial({ color: 0x45484a, roughness: 0.98, ...surfaceOptions(surfaceMaps?.asphalt, 0.14) });
+  const repairedAsphaltMaterials = [
+    new THREE.MeshStandardMaterial({ color: 0xffffff, map: repairTextures[0], roughness: 1, transparent: true, depthWrite: false, opacity: 0.78, ...surfaceOptions(surfaceMaps?.asphalt, 0.1) }),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, map: repairTextures[1], roughness: 1, transparent: true, depthWrite: false, opacity: 0.72, ...surfaceOptions(surfaceMaps?.asphalt, 0.08) }),
+  ];
+  const concreteMaterial = new THREE.MeshStandardMaterial({ color: 0x8b8980, roughness: 0.95, ...surfaceOptions(surfaceMaps?.concrete, 0.08) });
+  const fadedWhiteMaterial = new THREE.MeshStandardMaterial({ color: 0xb9b7aa, roughness: 0.9, ...surfaceOptions(surfaceMaps?.concrete, 0.04) });
+  const darkMetalMaterial = new THREE.MeshStandardMaterial({ color: 0x3d4143, roughness: 0.65, metalness: 0.55, ...surfaceOptions(surfaceMaps?.metal, 0.1) });
+  const galvanizedMaterial = new THREE.MeshStandardMaterial({ color: 0x999b96, roughness: 0.62, metalness: 0.45, ...surfaceOptions(surfaceMaps?.metal, 0.12) });
+  const utilityPoleMaterial = new THREE.MeshStandardMaterial({ color: 0x4d4b46, roughness: 0.95, ...surfaceOptions(surfaceMaps?.concrete, 0.06) });
+  const rustMaterial = new THREE.MeshStandardMaterial({ color: 0x6d4938, roughness: 0.95, ...surfaceOptions(surfaceMaps?.metal, 0.16) });
   const weedMaterial = new THREE.MeshStandardMaterial({ color: 0x586b3d, roughness: 1, side: THREE.DoubleSide });
 
   function lotCenter(index) {
