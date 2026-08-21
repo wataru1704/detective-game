@@ -15,7 +15,7 @@ export function createJapaneseCityDetails({
   const details = new THREE.Group();
   details.name = "JapaneseCityDetails";
   scene.add(details);
-  const cityDetailDiagnostics = { signals: [], signs: [] };
+  const cityDetailDiagnostics = { signals: [], signs: [], obstacles: [], roadIntrusions: [] };
 
   const roadWidth = cellSize - blockSize;
   const roadHalfWidth = roadWidth / 2;
@@ -23,6 +23,45 @@ export function createJapaneseCityDetails({
   const cityHalfDepth = ((gridRows - 1) * cellSize + blockSize) / 2;
   const mainRoadX = (Math.floor((gridCols - 1) / 2) + 0.5 - (gridCols - 1) / 2) * cellSize;
   const shoppingStreetZ = cellSize / 2;
+  const roadObstacleClearance = 0.3;
+  const roadCenterXs = Array.from(
+    { length: gridCols - 1 },
+    (_, index) => (index + 0.5 - (gridCols - 1) / 2) * cellSize
+  );
+  const roadCenterZs = Array.from(
+    { length: gridRows - 1 },
+    (_, index) => (index + 0.5 - (gridRows - 1) / 2) * cellSize
+  );
+
+  function roadCorridorsIntersectingBox(box) {
+    const epsilon = 0.0001;
+    const corridors = [];
+    roadCenterXs.forEach((center) => {
+      if (
+        box.max.x > center - roadHalfWidth - roadObstacleClearance + epsilon &&
+        box.min.x < center + roadHalfWidth + roadObstacleClearance - epsilon
+      ) corridors.push(`vertical:${center}`);
+    });
+    roadCenterZs.forEach((center) => {
+      if (
+        box.max.z > center - roadHalfWidth - roadObstacleClearance + epsilon &&
+        box.min.z < center + roadHalfWidth + roadObstacleClearance - epsilon
+      ) corridors.push(`horizontal:${center}`);
+    });
+    return corridors;
+  }
+
+  function recordGroundObstacle(label, box) {
+    cityDetailDiagnostics.obstacles.push({
+      label,
+      minX: box.min.x,
+      maxX: box.max.x,
+      minZ: box.min.z,
+      maxZ: box.max.z,
+    });
+    const corridors = roadCorridorsIntersectingBox(box);
+    if (corridors.length > 0) cityDetailDiagnostics.roadIntrusions.push({ label, corridors });
+  }
 
   const asphaltMaterial = new THREE.MeshStandardMaterial({ color: 0x45484a, roughness: 0.98 });
   const repairedAsphaltMaterials = [
@@ -194,7 +233,7 @@ export function createJapaneseCityDetails({
   details.add(drainMesh);
 
   // 電柱と電線。主要道路の片側へ寄せ、日本の狭い街路らしい密度にする。
-  const poleX = mainRoadX + roadHalfWidth + 0.42;
+  const poleX = mainRoadX + roadHalfWidth + 0.48;
   const poleZPositions = [];
   for (let z = -cityHalfDepth + 4; z <= cityHalfDepth - 4; z += cellSize) poleZPositions.push(z);
   const poleGeometry = new THREE.CylinderGeometry(0.12, 0.17, 7.1, 10);
@@ -305,13 +344,13 @@ export function createJapaneseCityDetails({
         const segmentZ = z + segment * 1.75;
         addBox(
           new THREE.Vector3(0.09, 0.78, 0.09),
-          new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.08), curbHeight + 0.39, segmentZ),
+          new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight + 0.39, segmentZ),
           galvanizedMaterial
         );
       }
       addBox(
         new THREE.Vector3(0.08, 0.2, 3.65),
-        new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.08), curbHeight + 0.58, z),
+        new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight + 0.58, z),
         galvanizedMaterial
       );
     });
@@ -319,7 +358,7 @@ export function createJapaneseCityDetails({
 
   function addVendingMachine(index, color, label) {
     const center = lotCenter(index);
-    const x = center.x + blockSize / 2 - 0.48;
+    const x = center.x + blockSize / 2 - 0.66;
     const z = center.z + (index % 2 === 0 ? 1.45 : -1.35);
     addBox(new THREE.Vector3(0.72, 1.75, 0.62), new THREE.Vector3(x, curbHeight + 0.875, z), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
     const texture = makeLabelTexture(label, "#f0eee6", "#c2362d");
@@ -340,7 +379,7 @@ export function createJapaneseCityDetails({
     if (openLotIndices.includes(index)) return;
     const center = lotCenter(index);
     const side = order % 2 === 0 ? 1 : -1;
-    const x = center.x + side * (blockSize / 2 - 0.48);
+    const x = center.x + side * (blockSize / 2 - 0.64);
     const z = center.z + ((order % 3) - 1) * 1.05;
     addBox(
       new THREE.Vector3(0.68, 0.54, 0.38),
@@ -406,6 +445,30 @@ export function createJapaneseCityDetails({
     minZ: shoppingSign.position.z - shoppingSignHalfWidth,
     maxZ: shoppingSign.position.z + shoppingSignHalfWidth,
   });
+
+  details.updateMatrixWorld(true);
+  let obstacleIndex = 0;
+  details.traverse((object) => {
+    if (!object.isMesh || object.isInstancedMesh) return;
+    const box = new THREE.Box3().setFromObject(object);
+    const isRoadSurfaceDetail = box.max.y <= curbHeight + 0.08;
+    const isSafelyOverhead = box.min.y >= 2.2;
+    if (isRoadSurfaceDetail || isSafelyOverhead) return;
+    recordGroundObstacle(`${object.geometry?.type || "mesh"}:${obstacleIndex}`, box);
+    obstacleIndex += 1;
+  });
+  poleZPositions.forEach((z, index) => {
+    recordGroundObstacle(
+      `utility-pole:${index}`,
+      new THREE.Box3(
+        new THREE.Vector3(poleX - 0.17, curbHeight, z - 0.17),
+        new THREE.Vector3(poleX + 0.17, curbHeight + 7.1, z + 0.17)
+      )
+    );
+  });
+  if (cityDetailDiagnostics.roadIntrusions.length > 0) {
+    console.error("Roadside obstacle entered the roadway", cityDetailDiagnostics.roadIntrusions);
+  }
   const canvas = document.querySelector("canvas");
   if (canvas) canvas.dataset.cityDetailDiagnostics = JSON.stringify(cityDetailDiagnostics);
 

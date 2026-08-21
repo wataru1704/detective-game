@@ -1,7 +1,7 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260821e";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260821f";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x889ca6);
@@ -130,7 +130,93 @@ function getBuildingMaxHeight(name) {
 
 const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
 const BUILDING_ROOF_UNIT_MARGIN = 0.8;
-const BUILDING_SCALE_MULTIPLIER = 1.12;
+const BUILDING_SCALE_MULTIPLIER = 1.17;
+// 1.17では隣接する7番・8番だけが接触するため、この2棟だけ安全な倍率へ抑える。
+const BUILDING_SCALE_LIMITS = new Map([[7, 1.15], [8, 1.15]]);
+const ROAD_OBSTACLE_CLEARANCE = 0.3;
+const ROAD_HALF_WIDTH = (CELL_SIZE - BLOCK_SIZE) / 2;
+const ROAD_CENTER_XS = Array.from(
+  { length: GRID_COLS - 1 },
+  (_, index) => (index + 0.5 - (GRID_COLS - 1) / 2) * CELL_SIZE
+);
+const ROAD_CENTER_ZS = Array.from(
+  { length: GRID_ROWS - 1 },
+  (_, index) => (index + 0.5 - (GRID_ROWS - 1) / 2) * CELL_SIZE
+);
+const roadwayClearanceDiagnostics = {
+  minimumClearance: ROAD_OBSTACLE_CLEARANCE,
+  obstacles: [],
+  adjustments: [],
+  intrusions: [],
+};
+window.__roadwayClearanceDiagnostics = roadwayClearanceDiagnostics;
+
+function roadCorridorsIntersectingBox(box, clearance = ROAD_OBSTACLE_CLEARANCE) {
+  const epsilon = 0.0001;
+  const corridors = [];
+  ROAD_CENTER_XS.forEach((center) => {
+    if (
+      box.max.x > center - ROAD_HALF_WIDTH - clearance + epsilon &&
+      box.min.x < center + ROAD_HALF_WIDTH + clearance - epsilon
+    ) corridors.push(`vertical:${center}`);
+  });
+  ROAD_CENTER_ZS.forEach((center) => {
+    if (
+      box.max.z > center - ROAD_HALF_WIDTH - clearance + epsilon &&
+      box.min.z < center + ROAD_HALF_WIDTH + clearance - epsilon
+    ) corridors.push(`horizontal:${center}`);
+  });
+  return corridors;
+}
+
+function moveObjectOutsideRoadways(object, initialBox) {
+  const box = initialBox.clone();
+  const movement = new THREE.Vector3();
+  ROAD_CENTER_XS.forEach((center) => {
+    if (roadCorridorsIntersectingBox(box).includes(`vertical:${center}`)) {
+      const centerX = (box.min.x + box.max.x) / 2;
+      const shiftX = centerX < center
+        ? center - ROAD_HALF_WIDTH - ROAD_OBSTACLE_CLEARANCE - box.max.x
+        : center + ROAD_HALF_WIDTH + ROAD_OBSTACLE_CLEARANCE - box.min.x;
+      object.position.x += shiftX;
+      movement.x += shiftX;
+      box.translate(new THREE.Vector3(shiftX, 0, 0));
+    }
+  });
+  ROAD_CENTER_ZS.forEach((center) => {
+    if (roadCorridorsIntersectingBox(box).includes(`horizontal:${center}`)) {
+      const centerZ = (box.min.z + box.max.z) / 2;
+      const shiftZ = centerZ < center
+        ? center - ROAD_HALF_WIDTH - ROAD_OBSTACLE_CLEARANCE - box.max.z
+        : center + ROAD_HALF_WIDTH + ROAD_OBSTACLE_CLEARANCE - box.min.z;
+      object.position.z += shiftZ;
+      movement.z += shiftZ;
+      box.translate(new THREE.Vector3(0, 0, shiftZ));
+    }
+  });
+  object.updateMatrixWorld(true);
+  return movement;
+}
+
+function recordRoadsideObstacle(label, box, movement = null) {
+  const entry = {
+    label,
+    minX: box.min.x,
+    maxX: box.max.x,
+    minZ: box.min.z,
+    maxZ: box.max.z,
+  };
+  roadwayClearanceDiagnostics.obstacles.push(entry);
+  if (movement && (Math.abs(movement.x) > 0.0001 || Math.abs(movement.z) > 0.0001)) {
+    roadwayClearanceDiagnostics.adjustments.push({ label, x: movement.x, z: movement.z });
+  }
+  const corridors = roadCorridorsIntersectingBox(box);
+  if (corridors.length > 0) {
+    roadwayClearanceDiagnostics.intrusions.push({ label, corridors });
+    console.error("Roadside obstacle entered the roadway", { label, corridors });
+  }
+  renderer.domElement.dataset.roadwayClearanceDiagnostics = JSON.stringify(roadwayClearanceDiagnostics);
+}
 const CITY_LAYOUT_SEED = 1704; // 再読み込みしても同じ街並みを再現するための固定値
 const gridRows = GRID_ROWS;
 
@@ -533,10 +619,15 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
           object.castShadow = assetName.startsWith("car_");
           object.receiveShadow = true;
         });
+        let finalBox = new THREE.Box3().setFromObject(model);
+        const movement = roadCorridorsIntersectingBox(finalBox).length > 0
+          ? moveObjectOutsideRoadways(model, finalBox)
+          : new THREE.Vector3();
+        finalBox = new THREE.Box3().setFromObject(model);
+        recordRoadsideObstacle(`street-asset:${assetName}:${index}`, finalBox, movement);
         scene.add(model);
 
         if (collidable) {
-          const finalBox = new THREE.Box3().setFromObject(model);
           buildingBoxes.push({
             minX: finalBox.min.x,
             maxX: finalBox.max.x,
@@ -622,6 +713,14 @@ function addStreetlight(x, z, rotation, addLocalLight) {
   streetlight.position.set(x, CURB_HEIGHT, z);
   streetlight.rotation.y = rotation;
   scene.add(streetlight);
+  const poleRadius = 0.075;
+  recordRoadsideObstacle(
+    `streetlight:${x}:${z}`,
+    new THREE.Box3(
+      new THREE.Vector3(x - poleRadius, CURB_HEIGHT, z - poleRadius),
+      new THREE.Vector3(x + poleRadius, CURB_HEIGHT + STREETLIGHT_HEIGHT, z + poleRadius)
+    )
+  );
 }
 
 for (let row = 0; row < gridRows; row++) {
@@ -630,8 +729,9 @@ for (let row = 0; row < gridRows; row++) {
     const lotX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
     const lotZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
     const side = index % 2 === 0 ? 1 : -1;
-    const x = lotX + side * (BLOCK_SIZE / 2 - 0.1);
-    const z = lotZ + ((row + col) % 2 === 0 ? 1 : -1) * (BLOCK_SIZE / 2 - 0.1);
+    const poleCenterInset = ROAD_OBSTACLE_CLEARANCE + 0.075;
+    const x = lotX + side * (BLOCK_SIZE / 2 - poleCenterInset);
+    const z = lotZ + ((row + col) % 2 === 0 ? 1 : -1) * (BLOCK_SIZE / 2 - poleCenterInset);
     addStreetlight(x, z, side > 0 ? Math.PI : 0, index % 9 === 0);
   }
 }
@@ -816,6 +916,7 @@ window.__buildingDiagnostics = buildingDiagnostics;
 renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length);
 renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
+renderer.domElement.dataset.buildingScaleLimits = JSON.stringify(Object.fromEntries(BUILDING_SCALE_LIMITS));
 renderer.domElement.dataset.facadeSignsPlaced = "0";
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
@@ -842,7 +943,8 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       rawBox.getSize(rawSize);
       const footprintScale = layout.footprint / Math.max(rawSize.x, rawSize.z);
       const heightScale = getBuildingMaxHeight(name) / rawSize.y;
-      const scaleFactor = Math.min(footprintScale, heightScale) * BUILDING_SCALE_MULTIPLIER;
+      const slotScaleMultiplier = BUILDING_SCALE_LIMITS.get(idx) ?? BUILDING_SCALE_MULTIPLIER;
+      const scaleFactor = Math.min(footprintScale, heightScale) * slotScaleMultiplier;
       // XYZを同じ倍率にして、扉・窓・階高の形を変形させない。
       model.scale.setScalar(scaleFactor);
       model.rotation.y = layout.rotation;
@@ -909,7 +1011,9 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
         maxX: finalBox.max.x,
         minZ: finalBox.min.z,
         maxZ: finalBox.max.z,
+        scaleMultiplier: slotScaleMultiplier,
       });
+      recordRoadsideObstacle(`building:${idx}`, finalBox);
       renderer.domElement.dataset.buildingsPlaced = String(buildingDiagnostics.length);
       renderer.domElement.dataset.buildingDimensions = JSON.stringify(buildingDiagnostics);
 
@@ -958,9 +1062,9 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
         const neonWidth = facadeWidth * 0.55;
         const neon = new THREE.Mesh(new THREE.PlaneGeometry(neonWidth, 0.48), neonMat);
         neon.position.set(
-          buildingCenterX + front.x * (facadeOffset + 0.015),
+          buildingCenterX + front.x * (facadeOffset - 0.02),
           Math.min(topY - 0.3, CURB_HEIGHT + BUILDING_FACADE_SIGN_HEIGHT),
-          buildingCenterZ + front.z * (facadeOffset + 0.015)
+          buildingCenterZ + front.z * (facadeOffset - 0.02)
         );
         neon.rotation.y = layout.rotation + Math.PI;
         scene.add(neon);
@@ -974,6 +1078,7 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
           minZ: signBox.min.z,
           maxZ: signBox.max.z,
         });
+        recordRoadsideObstacle(`facade-sign:${idx}`, signBox);
         renderer.domElement.dataset.facadeSignsPlaced = String(facadeSignDiagnostics.length);
         renderer.domElement.dataset.facadeSignDimensions = JSON.stringify(facadeSignDiagnostics);
       }
