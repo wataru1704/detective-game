@@ -130,6 +130,7 @@ function getBuildingMaxHeight(name) {
 
 const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
 const BUILDING_ROOF_UNIT_MARGIN = 0.8;
+const BUILDING_SCALE_MULTIPLIER = 1.12;
 const CITY_LAYOUT_SEED = 1704; // 再読み込みしても同じ街並みを再現するための固定値
 const gridRows = GRID_ROWS;
 
@@ -813,6 +814,7 @@ const buildingDiagnostics = [];
 window.__buildingDiagnostics = buildingDiagnostics;
 renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length);
 renderer.domElement.dataset.buildingsPlaced = "0";
+renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
 Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
   const name = buildingNameForSlot(idx);
   if (OPEN_LOT_INDICES.includes(idx)) return;
@@ -838,7 +840,7 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       rawBox.getSize(rawSize);
       const footprintScale = layout.footprint / Math.max(rawSize.x, rawSize.z);
       const heightScale = getBuildingMaxHeight(name) / rawSize.y;
-      const scaleFactor = Math.min(footprintScale, heightScale);
+      const scaleFactor = Math.min(footprintScale, heightScale) * BUILDING_SCALE_MULTIPLIER;
       // XYZを同じ倍率にして、扉・窓・階高の形を変形させない。
       model.scale.setScalar(scaleFactor);
       model.rotation.y = layout.rotation;
