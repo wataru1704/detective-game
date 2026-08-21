@@ -88,6 +88,12 @@ const SUBURBAN_BUILDINGS = [
   "suburban_k", "suburban_n", "suburban_r", "suburban_u",
 ];
 const BUILDING_ASSETS = [...BASE_BUILDINGS, ...SUBURBAN_BUILDINGS];
+const PROPORTIONATE_LOW_REPLACEMENTS = [
+  "low_wideA", "low_wideB",
+  "small_buildingA", "small_buildingB", "small_buildingC",
+  "small_buildingD", "small_buildingE", "small_buildingF",
+  "suburban_h", "suburban_u",
+];
 
 // 以前は8mの敷地を6m道路が一軒ごとに囲み、街の約67%が道路だった。
 // 18m四方の街区を6m道路で区切り、各街区に6つの小敷地をまとめる。
@@ -170,7 +176,12 @@ function createBuildingLayout(name, index) {
 function buildingNameForSlot(index) {
   // 新旧のモデルが固まらないよう、固定seedの順番で循環させる。
   const stride = 11;
-  return BUILDING_ASSETS[(index * stride + Math.floor(index / BUILDINGS_PER_BLOCK) * 3) % BUILDING_ASSETS.length];
+  const candidate = BUILDING_ASSETS[(index * stride + Math.floor(index / BUILDINGS_PER_BLOCK) * 3) % BUILDING_ASSETS.length];
+  // low_building群は幅1.56〜2mに対して高さ7mとなるため、比率の自然な低層モデルへ置き換える。
+  if (candidate.startsWith("low_building")) {
+    return PROPORTIONATE_LOW_REPLACEMENTS[index % PROPORTIONATE_LOW_REPLACEMENTS.length];
+  }
+  return candidate;
 }
 
 // ---------- 地面（車道） ----------
@@ -330,8 +341,7 @@ OPEN_LOT_INDICES.forEach((index, order) => {
     curatedPropSpots.push(
       { asset: "road_dumpster", x: layout.x + 1.35, z: layout.z - front * 0.82, rotation: Math.PI / 2 },
       { asset: "road_barrier", x: layout.x - 0.65, z: layout.z + front * 1.72, rotation: 0 },
-      { asset: "suburban_fence_low", x: layout.x - 1.85, z: layout.z - front * 0.5, rotation: Math.PI / 2 },
-      { asset: "suburban_tree_small", x: layout.x + 0.75, z: layout.z + front * 0.65, rotation: order * 0.41 }
+      { asset: "suburban_fence_low", x: layout.x - 1.85, z: layout.z - front * 0.5, rotation: Math.PI / 2 }
     );
   }
 });
@@ -468,7 +478,7 @@ renderer.domElement.dataset.streetAssetsExpected = String(streetAssetDiagnostics
 renderer.domElement.dataset.streetAssetsPlaced = "0";
 renderer.domElement.dataset.streetAssetsFailed = "0";
 
-function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizontal", collidable = false) {
+function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizontal", collidable = false, targetDimensions = null) {
   if (placements.length === 0) return;
   loader.load(
     "assets/" + assetName + ".glb",
@@ -477,12 +487,20 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
       const rawBox = new THREE.Box3().setFromObject(source);
       const rawSize = new THREE.Vector3();
       rawBox.getSize(rawSize);
-      const fitDimension = fitAxis === "height" ? rawSize.y : Math.max(rawSize.x, rawSize.z);
-      if (!Number.isFinite(fitDimension) || fitDimension <= 0) {
-        streetAssetDiagnostics.failed.push(assetName);
-        return;
+      if (targetDimensions) {
+        source.scale.set(
+          targetDimensions.x / rawSize.x,
+          targetDimensions.y / rawSize.y,
+          targetDimensions.z / rawSize.z
+        );
+      } else {
+        const fitDimension = fitAxis === "height" ? rawSize.y : Math.max(rawSize.x, rawSize.z);
+        if (!Number.isFinite(fitDimension) || fitDimension <= 0) {
+          streetAssetDiagnostics.failed.push(assetName);
+          return;
+        }
+        source.scale.setScalar(targetSize / fitDimension);
       }
-      source.scale.setScalar(targetSize / fitDimension);
       source.updateMatrixWorld(true);
 
       placements.forEach((placement, index) => {
@@ -530,15 +548,16 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
 }
 
 [
-  { name: "car_sedan", target: 3.8, collidable: true },
-  { name: "car_van", target: 3.8, collidable: true },
+  { name: "car_sedan", dimensions: new THREE.Vector3(1.75, 1.48, 4.25) },
+  { name: "car_van", dimensions: new THREE.Vector3(1.78, 1.75, 4.4) },
 ].forEach((spec) => {
   loadPlacedAsset(
     spec.name,
     parkingVehicleSpots.filter((spot) => spot.asset === spec.name),
-    spec.target,
+    1,
     "horizontal",
-    spec.collidable
+    true,
+    spec.dimensions
   );
 });
 
@@ -547,7 +566,6 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
   { name: "road_barrier", target: 1.5, fit: "horizontal" },
   { name: "suburban_fence_low", target: 2.6, fit: "horizontal" },
   { name: "suburban_planter", target: 0.75, fit: "horizontal" },
-  { name: "suburban_tree_small", target: 3.2, fit: "height" },
 ].forEach((spec) => {
   loadPlacedAsset(
     spec.name,
@@ -941,11 +959,10 @@ loader.load(
   (gltf) => {
     const model = gltf.scene;
 
-    // このモデルはスキン付き（骨で変形するタイプ）で、Box3による自動サイズ測定が
-    // 正しく効かない（骨のワールド座標は正常だが、ジオメトリ側の見かけ上のバウンディングが
-    // 実際のスキン変形後のサイズと一致しない）。そのため、実際にレンダリングして
-    // 確認した見た目のバランスをもとに、スケールを直接指定する。
-    const CHAR_SCALE = 0.55;
+    // スキン付きモデルの骨をワールド座標で実測した高さを基準に、人物を1.75mへ統一する。
+    const PLAYER_TARGET_HEIGHT = 1.75;
+    const ADVENTURER_RIG_HEIGHT = 1.8085184492;
+    const CHAR_SCALE = PLAYER_TARGET_HEIGHT / ADVENTURER_RIG_HEIGHT;
     model.scale.setScalar(CHAR_SCALE);
     model.position.set(0, 0, 0); // Rootボーンが既に接地面(y=0)にある
 
@@ -1117,12 +1134,13 @@ function updatePlayer(dt) {
 // ---------- 追従カメラ（画面ドラッグで自機の周りを回転） ----------
 const CAMERA_DIST = 4.5;
 const CAMERA_HEIGHT = 2.6;
+const CAMERA_TARGET_HEIGHT = 1.05;
 function updateCamera() {
   const p = player.position;
   const offsetX = Math.sin(cameraYaw) * CAMERA_DIST;
   const offsetZ = Math.cos(cameraYaw) * CAMERA_DIST;
   camera.position.set(p.x + offsetX, p.y + CAMERA_HEIGHT, p.z + offsetZ);
-  camera.lookAt(p.x, p.y + 0.6, p.z);
+  camera.lookAt(p.x, p.y + CAMERA_TARGET_HEIGHT, p.z);
 }
 
 // ---------- FPS表示 ----------

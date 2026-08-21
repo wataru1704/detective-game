@@ -6,7 +6,7 @@
 - Source: https://www.kenney.nl/assets/city-kit-suburban
 - License: Creative Commons Zero (CC0 1.0)
 - License URL: https://creativecommons.org/publicdomain/zero/1.0/
-- Files used: assets/suburban_a.glb, suburban_c.glb, suburban_f.glb, suburban_h.glb, suburban_k.glb, suburban_n.glb, suburban_r.glb, suburban_u.glb, suburban_fence_low.glb, suburban_planter.glb, suburban_tree_small.glb
+- Files used: assets/suburban_a.glb, suburban_c.glb, suburban_f.glb, suburban_h.glb, suburban_k.glb, suburban_n.glb, suburban_r.glb, suburban_u.glb, suburban_fence_low.glb, suburban_planter.glb
 
 ## City Tour
 
