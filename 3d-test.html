@@ -16,6 +16,17 @@
     color: #f0c14b; font-family: sans-serif; font-size: 13px;
     background: rgba(0,0,0,0.5); padding: 8px 12px; border-radius: 6px;
   }
+  #visual-qa {
+    position: fixed; left: 50%; bottom: 10px; z-index: 30;
+    transform: translateX(-50%); white-space: nowrap;
+    color: #e8f6ff; font: 12px/1.4 ui-monospace, monospace;
+    background: rgba(5, 12, 17, 0.82); padding: 6px 10px; border-radius: 4px;
+  }
+  .visual-qa-mode #info,
+  .visual-qa-mode #fps,
+  .visual-qa-mode #joystick-base,
+  .visual-qa-mode #btn-touch-interact { display: none; }
+
   /* バーチャルスティック（左下） */
   #joystick-base {
     position: fixed; left: 24px; bottom: 24px;
@@ -83,6 +94,6 @@
   }
 }
 </script>
-<script type="module" src="js/3d-test.js?v=20260821g"></script>
+<script type="module" src="js/3d-test.js?v=20260822a"></script>
 </body>
 </html>
