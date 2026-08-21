@@ -2,10 +2,11 @@
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
-import { createVisualQa } from "./visual-qa.js?v=20260822a";
+import { createVisualQa } from "./visual-qa.js?v=20260822n";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822l";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
+import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822r";
 
 const scene = new THREE.Scene();
 
@@ -569,6 +570,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
 }
 
 const loader = new GLTFLoader();
+const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 
 const streetAssetDiagnostics = {
   expected: parkingVehicleSpots.length + curatedPropSpots.length,
@@ -579,6 +581,32 @@ window.__streetAssetDiagnostics = streetAssetDiagnostics;
 renderer.domElement.dataset.streetAssetsExpected = String(streetAssetDiagnostics.expected);
 renderer.domElement.dataset.streetAssetsPlaced = "0";
 renderer.domElement.dataset.streetAssetsFailed = "0";
+
+const realisticStreetAssets = createRealisticStreetAssets({
+  THREE,
+  scene,
+  vehiclePlacements: parkingVehicleSpots,
+  vegetationPlacements: curatedPropSpots.filter((spot) => spot.asset === "suburban_planter"),
+  groundY: CURB_HEIGHT,
+});
+renderer.domElement.dataset.realisticStreetAssets = JSON.stringify(realisticStreetAssets.diagnostics);
+streetAssetDiagnostics.placed = realisticStreetAssets.diagnostics.vehicles + realisticStreetAssets.diagnostics.vegetation;
+renderer.domElement.dataset.streetAssetsPlaced = String(streetAssetDiagnostics.placed);
+realisticStreetAssets.vehicleBounds.forEach((bounds, index) => {
+  const box = new THREE.Box3(
+    new THREE.Vector3(bounds.minX, bounds.minY, bounds.minZ),
+    new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ)
+  );
+  recordRoadsideObstacle(`detailed-vehicle:${bounds.type}:${index}`, box, new THREE.Vector3());
+  buildingBoxes.push({ minX: bounds.minX, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: bounds.maxZ });
+});
+realisticStreetAssets.vegetationBounds.forEach((bounds, index) => {
+  const box = new THREE.Box3(
+    new THREE.Vector3(bounds.minX, bounds.minY, bounds.minZ),
+    new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ)
+  );
+  recordRoadsideObstacle(`urban-vegetation:${index}`, box, new THREE.Vector3());
+});
 
 function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizontal", collidable = false, targetDimensions = null) {
   if (placements.length === 0) return;
@@ -654,25 +682,11 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
   );
 }
 
-[
-  { name: "car_sedan", dimensions: new THREE.Vector3(1.75, 1.48, 4.25) },
-  { name: "car_van", dimensions: new THREE.Vector3(1.78, 1.75, 4.4) },
-].forEach((spec) => {
-  loadPlacedAsset(
-    spec.name,
-    parkingVehicleSpots.filter((spot) => spot.asset === spec.name),
-    1,
-    "horizontal",
-    true,
-    spec.dimensions
-  );
-});
 
 [
   { name: "road_dumpster", target: 1.55, fit: "horizontal" },
   { name: "road_barrier", target: 1.5, fit: "horizontal" },
   { name: "suburban_fence_low", target: 2.6, fit: "horizontal" },
-  { name: "suburban_planter", target: 0.75, fit: "horizontal" },
 ].forEach((spec) => {
   loadPlacedAsset(
     spec.name,
@@ -753,7 +767,7 @@ createJapaneseCityDetails({
   surfaceMaps,
 });
 
-const buildingBoxes = []; // 当たり判定用（world座標のAABB）
+
 const neonColors = [0xff3366, 0x33e0ff, 0xffcc33, 0x66ff99, 0xff66ff, 0xff9933];
 // 建物の素材プリセット（ガラス/レンガ/コンクリート/スティール/石材/銅板風など）。
 // 部位（本体・トリム・ドア）ごとに色を変え、同じ建物の中でも単色べったりにしない
