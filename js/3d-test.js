@@ -4,9 +4,9 @@ import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
 import { createVisualQa } from "./visual-qa.js?v=20260822u";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
-import { createBuildingDetailSystem } from "./building-details.js?v=20260822m";
+import { createBuildingDetailSystem } from "./building-details.js?v=20260822n";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
-import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822r";
+import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822s";
 
 const scene = new THREE.Scene();
 
@@ -90,7 +90,79 @@ const BUILDING_SCALE_MULTIPLIER = 1.24;
 const BUILDING_SCALE_LIMITS = new Map([[2, 1.19], [7, 1.20], [8, 1.20], [24, 1.20]]);
 // 建物をXYZ同率で拡大したまま、接近する2組だけ敷地内で数十cmずらして間隔を保つ。
 const BUILDING_POSITION_OFFSETS = new Map([[8, { x: 0.26, z: 0 }], [21, { x: -0.22, z: 0 }], [24, { x: 0, z: 0.12 }]]);
-const BUILDING_SCALE_REVISION = "20260822-building-proportion";
+const MIN_ORIGINAL_DOOR_HEIGHT = 1.85;
+const MAX_SELECTIVE_DOOR_SCALE = 1.16;
+const BUILDING_SCALE_REVISION = "20260822-original-door-selective-scale";
+
+function measureOriginalDoorHeight(model) {
+  model.updateMatrixWorld(true);
+  const componentHeights = [];
+  model.traverse((object) => {
+    if (!object.isMesh) return;
+    const geometry = object.geometry;
+    const position = geometry?.attributes?.position;
+    if (!position) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const doorMaterialIndices = new Set();
+    materials.forEach((material, index) => {
+      if ((material?.name || "").toLowerCase() === "door") doorMaterialIndices.add(index);
+    });
+    if (doorMaterialIndices.size === 0) return;
+
+    const indexAttribute = geometry.index;
+    const elementCount = indexAttribute ? indexAttribute.count : position.count;
+    const sourceGroups = geometry.groups.length > 0
+      ? geometry.groups
+      : [{ start: 0, count: elementCount, materialIndex: 0 }];
+    const doorGroups = sourceGroups.filter((group) => doorMaterialIndices.has(group.materialIndex || 0));
+    const point = new THREE.Vector3();
+
+    doorGroups.forEach((group) => {
+      const parent = new Map();
+      const find = (value) => {
+        if (!parent.has(value)) parent.set(value, value);
+        let root = value;
+        while (parent.get(root) !== root) root = parent.get(root);
+        let current = value;
+        while (parent.get(current) !== root) {
+          const next = parent.get(current);
+          parent.set(current, root);
+          current = next;
+        }
+        return root;
+      };
+      const unite = (a, b) => {
+        const rootA = find(a);
+        const rootB = find(b);
+        if (rootA !== rootB) parent.set(rootB, rootA);
+      };
+      const vertices = new Set();
+      const end = Math.min(group.start + group.count, elementCount);
+      for (let offset = group.start; offset + 2 < end; offset += 3) {
+        const a = indexAttribute ? indexAttribute.getX(offset) : offset;
+        const b = indexAttribute ? indexAttribute.getX(offset + 1) : offset + 1;
+        const c = indexAttribute ? indexAttribute.getX(offset + 2) : offset + 2;
+        vertices.add(a); vertices.add(b); vertices.add(c);
+        unite(a, b); unite(b, c);
+      }
+      const bounds = new Map();
+      vertices.forEach((vertexIndex) => {
+        const root = find(vertexIndex);
+        point.fromBufferAttribute(position, vertexIndex).applyMatrix4(object.matrixWorld);
+        const entry = bounds.get(root) || { minY: Infinity, maxY: -Infinity };
+        entry.minY = Math.min(entry.minY, point.y);
+        entry.maxY = Math.max(entry.maxY, point.y);
+        bounds.set(root, entry);
+      });
+      bounds.forEach(({ minY, maxY }) => {
+        const height = maxY - minY;
+        if (height >= 0.6 && height <= 2.6) componentHeights.push(height);
+      });
+    });
+  });
+  return componentHeights.length > 0 ? Math.max(...componentHeights) : null;
+}
+
 const ROAD_OBSTACLE_CLEARANCE = 0.3;
 const ROAD_HALF_WIDTH = (CELL_SIZE - BLOCK_SIZE) / 2;
 const ROAD_CENTER_XS = Array.from(
@@ -962,6 +1034,8 @@ renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_L
 renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
 renderer.domElement.dataset.buildingScaleRevision = BUILDING_SCALE_REVISION;
+renderer.domElement.dataset.originalDoorMinimumHeight = String(MIN_ORIGINAL_DOOR_HEIGHT);
+renderer.domElement.dataset.maximumSelectiveDoorScale = String(MAX_SELECTIVE_DOOR_SCALE);
 renderer.domElement.dataset.buildingPositionOffsets = JSON.stringify(Object.fromEntries(BUILDING_POSITION_OFFSETS));
 renderer.domElement.dataset.buildingScaleLimits = JSON.stringify(Object.fromEntries(BUILDING_SCALE_LIMITS));
 renderer.domElement.dataset.facadeSignsPlaced = "0";
@@ -1005,6 +1079,15 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       // XYZを同じ倍率にして、扉・窓・階高の形を変形させない。
       model.scale.setScalar(scaleFactor);
       model.rotation.y = layout.rotation;
+      const originalDoorHeight = measureOriginalDoorHeight(model);
+      // 高層モデルの door マテリアルには外壁パネルも含まれるため、
+      // 街路から見える低層建物の既存扉だけを全体スケールの判定に使う。
+      const doorScaleEligible = !COMMERCIAL_TOWER_SLOTS.has(idx);
+      const selectiveDoorScale = doorScaleEligible && originalDoorHeight !== null && originalDoorHeight < MIN_ORIGINAL_DOOR_HEIGHT
+        ? Math.min(MIN_ORIGINAL_DOOR_HEIGHT / originalDoorHeight, MAX_SELECTIVE_DOOR_SCALE)
+        : 1;
+      if (selectiveDoorScale > 1) model.scale.multiplyScalar(selectiveDoorScale);
+      const finalDoorHeight = originalDoorHeight === null ? null : originalDoorHeight * selectiveDoorScale;
 
       const transformedBox = new THREE.Box3().setFromObject(model);
       const centerX = (transformedBox.min.x + transformedBox.max.x) / 2;
@@ -1081,6 +1164,11 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
         minZ: finalBox.min.z,
         maxZ: finalBox.max.z,
         scaleMultiplier: slotScaleMultiplier,
+        scaleFactor: scaleFactor * selectiveDoorScale,
+        originalDoorHeight,
+        doorScaleEligible,
+        selectiveDoorScale,
+        finalDoorHeight,
       });
       recordRoadsideObstacle(`building:${idx}`, finalBox);
       renderer.domElement.dataset.buildingsPlaced = String(buildingDiagnostics.length);
