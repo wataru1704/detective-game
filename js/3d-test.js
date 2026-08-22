@@ -2,7 +2,7 @@
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
-import { createVisualQa } from "./visual-qa.js?v=20260822s";
+import { createVisualQa } from "./visual-qa.js?v=20260822u";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822l";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";

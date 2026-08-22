@@ -4,7 +4,7 @@ const QA_VIEWS = [
   { name: "residential-frontage", position: [-5, 2.5, 18], target: [6, 1.45, 18] },
   { name: "shopping-street", position: [34, 2.7, -12], target: [13, 1.35, -12] },
   { name: "parking-and-cars", position: [34.5, 2.8, 24.5], target: [29.7, 1.0, 18.5] },
-  { name: "signal-crosswalk", position: [2, 6.8, -22], target: [12, 0.15, -12] },
+  { name: "signal-crosswalk", position: [12, 11, -23], target: [12, 0.15, -12] },
   { name: "service-alley", position: [1.5, 2.35, 8], target: [1.5, 1.05, -7] },
   { name: "city-edge-horizon", position: [31, 3.2, 24], target: [57, 2.0, 24] },
 ];
