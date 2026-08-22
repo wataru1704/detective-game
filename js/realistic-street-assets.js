@@ -1,4 +1,4 @@
-import { RoundedBoxGeometry } from "https://unpkg.com/three@0.160.0/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { FBXLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/FBXLoader.js";
 
 function createBatch(THREE, scene, geometry, material, entries, name, castShadow = false) {
   if (entries.length === 0) return null;
@@ -18,90 +18,96 @@ function createBatch(THREE, scene, geometry, material, entries, name, castShadow
 }
 
 function makeMatrix(THREE, placement, localPosition, localScale, localRotation = [0, 0, 0]) {
-  const vehicleRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, placement.rotation || 0, 0));
+  const placementRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, placement.rotation || 0, 0));
   const partRotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(...localRotation));
-  const worldRotation = vehicleRotation.clone().multiply(partRotation);
-  const local = new THREE.Vector3(...localPosition).applyQuaternion(vehicleRotation);
+  const worldRotation = placementRotation.clone().multiply(partRotation);
+  const local = new THREE.Vector3(...localPosition).applyQuaternion(placementRotation);
   const worldPosition = new THREE.Vector3(placement.x + local.x, placement.groundY + local.y, placement.z + local.z);
   return new THREE.Matrix4().compose(worldPosition, worldRotation, new THREE.Vector3(...localScale));
 }
 
-const VEHICLE_SPECS = [
-  { type: "kei-height-wagon", width: 1.48, height: 1.66, length: 3.40, color: 0xd9d7cf, cabinZ: 0.08 },
-  { type: "compact-hatchback", width: 1.69, height: 1.51, length: 4.05, color: 0x5f8ea0, cabinZ: 0.13 },
-  { type: "family-sedan", width: 1.75, height: 1.46, length: 4.44, color: 0xa7a49d, cabinZ: 0.05 },
-  { type: "compact-minivan", width: 1.73, height: 1.79, length: 4.55, color: 0xb85d50, cabinZ: 0.02 },
+const VEHICLE_MODELS = [
+  {
+    type: "late-2000s-compact",
+    asset: "assets/vehicle-realistic-compact.fbx",
+    width: 1.69,
+    height: 1.32,
+    length: 3.92,
+    color: 0x718b92,
+  },
+  {
+    type: "family-sedan",
+    asset: "assets/vehicle-realistic-car.fbx",
+    width: 1.75,
+    height: 1.39,
+    length: 4.12,
+    color: 0xa4a29b,
+  },
+  {
+    type: "utility-pickup",
+    asset: "assets/vehicle-realistic-pickup.fbx",
+    width: 1.72,
+    height: 1.48,
+    length: 4.55,
+    color: 0xc7c4b8,
+  },
+  {
+    type: "family-sedan-dark",
+    asset: "assets/vehicle-realistic-car.fbx",
+    width: 1.75,
+    height: 1.39,
+    length: 4.12,
+    color: 0x655f59,
+  },
 ];
 
-function createVehicles({ THREE, scene, placements, groundY }) {
-  const roundedUnit = new RoundedBoxGeometry(1, 1, 1, 3, 0.11);
-  const boxUnit = new THREE.BoxGeometry(1, 1, 1);
-  const wheelUnit = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-  const body = [];
-  const glass = [];
-  const wheels = [];
-  const trim = [];
-  const headlights = [];
-  const taillights = [];
-  const plates = [];
+function makeVehicleMaterial(THREE, original, bodyColor, isWheel) {
+  const name = (original?.name || "").toLowerCase();
+  if (isWheel) {
+    return new THREE.MeshStandardMaterial({ color: 0x202224, roughness: 0.88, metalness: 0.12 });
+  }
+  if (name === "cor" || name === "branco") {
+    return new THREE.MeshPhysicalMaterial({
+      name: original?.name,
+      color: bodyColor,
+      roughness: 0.28,
+      metalness: 0.18,
+      clearcoat: 0.62,
+      clearcoatRoughness: 0.20,
+    });
+  }
+  if (name === "cor2" || name === "preto") {
+    return new THREE.MeshPhysicalMaterial({
+      name: original?.name,
+      color: 0x182126,
+      roughness: 0.16,
+      metalness: 0.08,
+      transparent: true,
+      opacity: 0.86,
+    });
+  }
+  if (name === "cor3") {
+    return new THREE.MeshStandardMaterial({
+      name: original?.name,
+      color: 0xd8ddd8,
+      roughness: 0.30,
+      metalness: 0.42,
+      emissive: 0xbfc8c0,
+      emissiveIntensity: 0.10,
+    });
+  }
+  return new THREE.MeshStandardMaterial({ color: 0x303235, roughness: 0.68, metalness: 0.28 });
+}
+
+function createVehicles({ THREE, scene, placements, groundY, diagnostics }) {
+  const assignments = new Map();
   const bounds = [];
-
+  const plateEntries = [];
   placements.forEach((rawPlacement, index) => {
-    const spec = VEHICLE_SPECS[index % VEHICLE_SPECS.length];
+    const spec = VEHICLE_MODELS[index % VEHICLE_MODELS.length];
     const placement = { ...rawPlacement, groundY };
-    const wheelRadius = spec.type === "compact-minivan" ? 0.31 : 0.29;
-    const wheelWidth = 0.19;
-    const lowerHeight = spec.height * 0.38;
-    const cabinHeight = spec.height - lowerHeight - 0.17;
-    const cabinLength = spec.type === "family-sedan" ? spec.length * 0.50 : spec.length * 0.61;
-    const lowerY = wheelRadius + lowerHeight * 0.53;
-    const cabinY = wheelRadius + lowerHeight + cabinHeight * 0.48;
-
-    body.push(
-      { matrix: makeMatrix(THREE, placement, [0, lowerY, 0], [spec.width, lowerHeight, spec.length * 0.91]) },
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + lowerHeight * 0.88, -spec.length * 0.39], [spec.width * 0.95, lowerHeight * 0.37, spec.length * 0.18]) },
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + lowerHeight * 0.87, spec.length * 0.39], [spec.width * 0.94, lowerHeight * 0.34, spec.length * 0.16]) },
-      { matrix: makeMatrix(THREE, placement, [0, cabinY, spec.cabinZ], [spec.width * 0.84, cabinHeight, cabinLength]) }
-    );
-
-    const sideX = spec.width * 0.427;
-    const sideWindowLength = cabinLength * 0.37;
-    [-1, 1].forEach((side) => {
-      [-0.22, 0.22].forEach((zFactor) => {
-        glass.push({
-          matrix: makeMatrix(THREE, placement, [side * sideX, cabinY + cabinHeight * 0.05, spec.cabinZ + zFactor * cabinLength], [0.025, cabinHeight * 0.52, sideWindowLength]),
-        });
-      });
-      trim.push({
-        matrix: makeMatrix(THREE, placement, [side * (spec.width * 0.51), lowerY + lowerHeight * 0.18, -spec.length * 0.23], [0.075, 0.13, 0.17]),
-      });
-    });
-    glass.push(
-      { matrix: makeMatrix(THREE, placement, [0, cabinY + cabinHeight * 0.03, spec.cabinZ - cabinLength * 0.505], [spec.width * 0.70, cabinHeight * 0.54, 0.025], [-0.17, 0, 0]) },
-      { matrix: makeMatrix(THREE, placement, [0, cabinY + cabinHeight * 0.02, spec.cabinZ + cabinLength * 0.505], [spec.width * 0.69, cabinHeight * 0.51, 0.025], [0.13, 0, 0]) }
-    );
-
-    const axleZ = spec.length * 0.32;
-    [-1, 1].forEach((side) => {
-      [-1, 1].forEach((front) => {
-        wheels.push({
-          matrix: makeMatrix(THREE, placement, [side * spec.width * 0.48, wheelRadius, front * axleZ], [wheelRadius * 2, wheelWidth, wheelRadius * 2], [0, 0, Math.PI / 2]),
-        });
-      });
-    });
-
-    [-1, 1].forEach((side) => {
-      headlights.push({ matrix: makeMatrix(THREE, placement, [side * spec.width * 0.29, lowerY + lowerHeight * 0.05, -spec.length * 0.463], [spec.width * 0.22, lowerHeight * 0.24, 0.035]) });
-      taillights.push({ matrix: makeMatrix(THREE, placement, [side * spec.width * 0.31, lowerY + lowerHeight * 0.07, spec.length * 0.463], [spec.width * 0.18, lowerHeight * 0.27, 0.035]) });
-    });
-    trim.push(
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + 0.05, -spec.length * 0.467], [spec.width * 0.80, 0.11, 0.055]) },
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + 0.05, spec.length * 0.467], [spec.width * 0.82, 0.11, 0.055]) }
-    );
-    plates.push(
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + 0.24, -spec.length * 0.474], [0.33, 0.16, 0.018]) },
-      { matrix: makeMatrix(THREE, placement, [0, wheelRadius + 0.24, spec.length * 0.474], [0.33, 0.16, 0.018]) }
-    );
+    if (!assignments.has(spec.asset)) assignments.set(spec.asset, []);
+    assignments.get(spec.asset).push({ placement, spec, index });
 
     const rotated = Math.abs(Math.sin(placement.rotation || 0)) > 0.5;
     const halfX = (rotated ? spec.length : spec.width) / 2;
@@ -115,95 +121,200 @@ function createVehicles({ THREE, scene, placements, groundY }) {
       minZ: placement.z - halfZ,
       maxZ: placement.z + halfZ,
     });
+
+    [-1, 1].forEach((front) => {
+      plateEntries.push({
+        matrix: makeMatrix(
+          THREE,
+          placement,
+          [0, 0.47, front * (spec.length / 2 + 0.012)],
+          [0.34, 0.17, 0.018]
+        ),
+      });
+    });
   });
 
-  const bodyMeshes = VEHICLE_SPECS.slice(0, placements.length).map((spec, index) => {
-    const material = new THREE.MeshPhysicalMaterial({
-      color: spec.color,
-      roughness: 0.29,
-      metalness: 0.14,
-      clearcoat: 0.58,
-      clearcoatRoughness: 0.22,
-      emissive: spec.color,
-      emissiveIntensity: 0.10,
-    });
-    return createBatch(THREE, scene, roundedUnit, material, body.slice(index * 4, index * 4 + 4), `DetailedVehicles:body:${spec.type}`, true);
-  }).filter(Boolean);
-  const glassMaterial = new THREE.MeshPhysicalMaterial({ color: 0x71858d, roughness: 0.18, metalness: 0.05, emissive: 0x1b282d, emissiveIntensity: 0.24, transparent: true, opacity: 0.76 });
-  const tireMaterial = new THREE.MeshStandardMaterial({ color: 0x151617, roughness: 0.92, metalness: 0.02 });
-  const trimMaterial = new THREE.MeshStandardMaterial({ color: 0x292c2e, roughness: 0.56, metalness: 0.42 });
-  const headlightMaterial = new THREE.MeshStandardMaterial({ color: 0xd9e1d9, emissive: 0xdce6da, emissiveIntensity: 0.18, roughness: 0.28 });
-  const taillightMaterial = new THREE.MeshStandardMaterial({ color: 0x8f1918, emissive: 0x5b0707, emissiveIntensity: 0.15, roughness: 0.34 });
-  const plateMaterial = new THREE.MeshStandardMaterial({ color: 0xe4e2d4, roughness: 0.72, metalness: 0.02 });
+  const plateMaterial = new THREE.MeshStandardMaterial({ color: 0xe5e3d5, roughness: 0.72, metalness: 0.02 });
+  const plateMesh = createBatch(
+    THREE,
+    scene,
+    new THREE.BoxGeometry(1, 1, 1),
+    plateMaterial,
+    plateEntries,
+    "RealisticVehicles:japanese-plates"
+  );
+  diagnostics.drawCalls += plateMesh ? 1 : 0;
 
-  const meshes = [
-    ...bodyMeshes,
-    createBatch(THREE, scene, boxUnit, glassMaterial, glass, "DetailedVehicles:glass"),
-    createBatch(THREE, scene, wheelUnit, tireMaterial, wheels, "DetailedVehicles:wheels", true),
-    createBatch(THREE, scene, boxUnit, trimMaterial, trim, "DetailedVehicles:trim"),
-    createBatch(THREE, scene, boxUnit, headlightMaterial, headlights, "DetailedVehicles:headlights"),
-    createBatch(THREE, scene, boxUnit, taillightMaterial, taillights, "DetailedVehicles:taillights"),
-    createBatch(THREE, scene, boxUnit, plateMaterial, plates, "DetailedVehicles:plates"),
-  ].filter(Boolean);
-  return { count: placements.length, variants: placements.map((_, index) => VEHICLE_SPECS[index % VEHICLE_SPECS.length].type), bounds, drawCalls: meshes.length };
+  const loader = new FBXLoader();
+  diagnostics.modelsExpected = assignments.size;
+  assignments.forEach((assetAssignments, asset) => {
+    loader.load(
+      asset,
+      (source) => {
+        const rawBox = new THREE.Box3().setFromObject(source);
+        const rawSize = new THREE.Vector3();
+        rawBox.getSize(rawSize);
+        const sourceMeshCount = [];
+        source.traverse((child) => { if (child.isMesh) sourceMeshCount.push(child); });
+
+        assetAssignments.forEach(({ placement, spec, index }) => {
+          const vehicle = source.clone(true);
+          vehicle.name = `RealisticVehicle:${spec.type}:${index}`;
+          vehicle.scale.setScalar(spec.width / rawSize.x);
+          vehicle.rotation.y = placement.rotation || 0;
+          vehicle.updateMatrixWorld(true);
+          const transformedBox = new THREE.Box3().setFromObject(vehicle);
+          const centerX = (transformedBox.min.x + transformedBox.max.x) / 2;
+          const centerZ = (transformedBox.min.z + transformedBox.max.z) / 2;
+          vehicle.position.set(
+            placement.x - centerX,
+            groundY - transformedBox.min.y,
+            placement.z - centerZ
+          );
+          vehicle.traverse((child) => {
+            if (!child.isMesh) return;
+            if (!child.geometry.attributes.normal) child.geometry.computeVertexNormals();
+            const isWheel = /roda|wheel/i.test(child.name);
+            const originalMaterials = Array.isArray(child.material) ? child.material : [child.material];
+            const materials = originalMaterials.map((material) => makeVehicleMaterial(THREE, material, spec.color, isWheel));
+            child.material = Array.isArray(child.material) ? materials : materials[0];
+            // 車体は複数メッシュなので、動的な影を省いてスマホGPU負荷を抑える。
+            // 接地感は環境AOへ任せ、受光だけ残して形状と材質の精細さを優先する。
+            child.castShadow = false;
+            child.receiveShadow = true;
+          });
+          scene.add(vehicle);
+        });
+
+        diagnostics.modelsLoaded += 1;
+        diagnostics.vehicleModelDrawCalls += sourceMeshCount.length * assetAssignments.length;
+        diagnostics.drawCalls += sourceMeshCount.length * assetAssignments.length;
+        document.querySelector("canvas")?.setAttribute("data-realistic-street-assets", JSON.stringify(diagnostics));
+      },
+      undefined,
+      (error) => {
+        diagnostics.modelFailures.push(asset);
+        document.querySelector("canvas")?.setAttribute("data-realistic-street-assets", JSON.stringify(diagnostics));
+        console.warn(`Realistic vehicle load failed: ${asset}`, error);
+      }
+    );
+  });
+
+  return {
+    count: placements.length,
+    variants: placements.map((_, index) => VEHICLE_MODELS[index % VEHICLE_MODELS.length].type),
+    bounds,
+  };
 }
 
-function createVegetation({ THREE, scene, placements, groundY }) {
-  const potGeometry = new THREE.CylinderGeometry(0.38, 0.31, 0.42, 12);
-  const trunkGeometry = new THREE.CylinderGeometry(0.055, 0.085, 1, 9);
-  const foliageGeometry = new THREE.SphereGeometry(0.5, 12, 8);
+function createVegetation({ THREE, scene, placements, groundY, diagnostics }) {
+  const potGeometry = new THREE.CylinderGeometry(0.38, 0.31, 0.42, 16);
+  const trunkGeometry = new THREE.CylinderGeometry(0.62, 1, 1, 10);
+  const branchGeometry = new THREE.CylinderGeometry(0.55, 1, 1, 8);
+  const foliageGeometry = new THREE.PlaneGeometry(1, 1);
   const potEntries = [];
   const trunkEntries = [];
+  const branchEntries = [];
   const foliageEntries = [];
   const bounds = [];
 
   placements.forEach((rawPlacement, index) => {
     const placement = { ...rawPlacement, groundY };
-    const height = 2.20 + (index % 3) * 0.24;
-    const canopyY = 1.50 + (index % 2) * 0.10;
+    const treeHeight = 2.34 + (index % 3) * 0.16;
+    const trunkHeight = 1.55 + (index % 2) * 0.12;
+    const canopyY = 1.54 + (index % 2) * 0.08;
+    const canopyWidth = 1.50 + (index % 3) * 0.08;
+    const canopyHeight = 1.36 + ((index + 1) % 3) * 0.06;
     potEntries.push({ matrix: makeMatrix(THREE, placement, [0, 0.21, 0], [1, 1, 1]) });
-    trunkEntries.push({ matrix: makeMatrix(THREE, placement, [0, 0.42 + (height - 0.72) / 2, 0], [1, height - 0.72, 1], [0.03 * (index - 1.5), 0, 0.04 * ((index % 2) * 2 - 1)]) });
-    const clusters = [
-      [0, canopyY + 0.30, 0, 0.78, 0.66, 0.70],
-      [-0.34, canopyY + 0.05, 0.06, 0.58, 0.50, 0.55],
-      [0.31, canopyY + 0.12, -0.12, 0.57, 0.48, 0.52],
-      [0.10, canopyY + 0.55, 0.10, 0.48, 0.45, 0.47],
+    trunkEntries.push({
+      matrix: makeMatrix(
+        THREE,
+        placement,
+        [0, 0.42 + trunkHeight / 2, 0],
+        [0.085, trunkHeight, 0.085],
+        [0.025 * (index - 1.5), 0, 0.035 * ((index % 2) * 2 - 1)]
+      ),
+    });
+
+    const branches = [
+      [-0.16, 1.28, 0.02, 0.035, 0.68, 0.035, 0.04, 0.18, 0.48],
+      [0.18, 1.42, -0.02, 0.032, 0.62, 0.032, -0.10, -0.28, -0.52],
+      [0.02, 1.58, 0.12, 0.028, 0.52, 0.028, 0.42, 0.12, 0.10],
     ];
-    clusters.forEach((cluster, clusterIndex) => {
-      foliageEntries.push({
-        matrix: makeMatrix(THREE, placement, cluster.slice(0, 3), cluster.slice(3), [0.08 * clusterIndex, index * 0.39 + clusterIndex * 0.31, -0.05 * clusterIndex]),
+    branches.forEach((branch) => {
+      branchEntries.push({
+        matrix: makeMatrix(
+          THREE,
+          placement,
+          branch.slice(0, 3),
+          branch.slice(3, 6),
+          branch.slice(6)
+        ),
       });
     });
+
+    [0, Math.PI / 3, Math.PI * 2 / 3].forEach((rotationY, cardIndex) => {
+      foliageEntries.push({
+        matrix: makeMatrix(
+          THREE,
+          placement,
+          [0, canopyY + cardIndex * 0.015, 0],
+          [canopyWidth, canopyHeight, 1],
+          [0, rotationY + index * 0.19, (cardIndex - 1) * 0.025]
+        ),
+      });
+    });
+
     bounds.push({
-      minX: placement.x - 0.72,
-      maxX: placement.x + 0.72,
+      minX: placement.x - canopyWidth / 2,
+      maxX: placement.x + canopyWidth / 2,
       minY: groundY,
-      maxY: groundY + height,
-      minZ: placement.z - 0.72,
-      maxZ: placement.z + 0.72,
+      maxY: groundY + treeHeight,
+      minZ: placement.z - canopyWidth / 2,
+      maxZ: placement.z + canopyWidth / 2,
     });
   });
 
-  const potMaterial = new THREE.MeshStandardMaterial({ color: 0x65615a, roughness: 0.96, metalness: 0.02 });
-  const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x675342, roughness: 1.0, metalness: 0 });
-  const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x66745d, roughness: 0.94, metalness: 0, emissive: 0x66745d, emissiveIntensity: 0.16 });
+  const foliageTexture = new THREE.TextureLoader().load("assets/Textures/urban-tree-foliage.png");
+  foliageTexture.colorSpace = THREE.SRGBColorSpace;
+  const potMaterial = new THREE.MeshStandardMaterial({ color: 0x68645d, roughness: 0.98, metalness: 0.01 });
+  const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x594a3c, roughness: 1, metalness: 0 });
+  const foliageMaterial = new THREE.MeshStandardMaterial({
+    color: 0xb7b8a7,
+    map: foliageTexture,
+    transparent: true,
+    alphaTest: 0.32,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+    roughness: 0.92,
+    metalness: 0,
+  });
   const meshes = [
-    createBatch(THREE, scene, potGeometry, potMaterial, potEntries, "UrbanVegetation:pots"),
+    createBatch(THREE, scene, potGeometry, potMaterial, potEntries, "UrbanVegetation:weathered-pots"),
     createBatch(THREE, scene, trunkGeometry, trunkMaterial, trunkEntries, "UrbanVegetation:trunks", true),
-    createBatch(THREE, scene, foliageGeometry, foliageMaterial, foliageEntries, "UrbanVegetation:foliage", true),
+    createBatch(THREE, scene, branchGeometry, trunkMaterial, branchEntries, "UrbanVegetation:branches", true),
+    createBatch(THREE, scene, foliageGeometry, foliageMaterial, foliageEntries, "UrbanVegetation:foliage-cards"),
   ].filter(Boolean);
-  return { count: placements.length, bounds, drawCalls: meshes.length };
+  diagnostics.drawCalls += meshes.length;
+  return { count: placements.length, bounds };
 }
 
 export function createRealisticStreetAssets({ THREE, scene, vehiclePlacements, vegetationPlacements, groundY }) {
-  const vehicles = createVehicles({ THREE, scene, placements: vehiclePlacements, groundY });
-  const vegetation = createVegetation({ THREE, scene, placements: vegetationPlacements, groundY });
   const diagnostics = {
-    vehicles: vehicles.count,
-    vehicleVariants: vehicles.variants,
-    vegetation: vegetation.count,
-    drawCalls: vehicles.drawCalls + vegetation.drawCalls,
+    version: 2,
+    vehicles: vehiclePlacements.length,
+    vehicleVariants: [],
+    vegetation: vegetationPlacements.length,
+    modelsExpected: 0,
+    modelsLoaded: 0,
+    modelFailures: [],
+    vehicleModelDrawCalls: 0,
+    drawCalls: 0,
+    foliageTexture: "assets/Textures/urban-tree-foliage.png",
   };
+  const vehicles = createVehicles({ THREE, scene, placements: vehiclePlacements, groundY, diagnostics });
+  const vegetation = createVegetation({ THREE, scene, placements: vegetationPlacements, groundY, diagnostics });
+  diagnostics.vehicleVariants = vehicles.variants;
   window.__realisticStreetAssetDiagnostics = diagnostics;
   return { diagnostics, vehicleBounds: vehicles.bounds, vegetationBounds: vegetation.bounds };
 }
