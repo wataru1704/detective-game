@@ -4,7 +4,7 @@ import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
 import { createVisualQa } from "./visual-qa.js?v=20260822u";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
-import { createBuildingDetailSystem } from "./building-details.js?v=20260822l";
+import { createBuildingDetailSystem } from "./building-details.js?v=20260822m";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
 import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822r";
 
@@ -85,9 +85,12 @@ function getBuildingMaxHeight(name) {
 
 const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
 const BUILDING_ROOF_UNIT_MARGIN = 0.8;
-const BUILDING_SCALE_MULTIPLIER = 1.17;
-// 1.17では隣接する7番・8番だけが接触するため、この2棟だけ安全な倍率へ抑える。
-const BUILDING_SCALE_LIMITS = new Map([[7, 1.15], [8, 1.15]]);
+const BUILDING_SCALE_MULTIPLIER = 1.24;
+// 全棟を同率で広げると道路・隣家へ触れるため、余白の少ない区画だけ小さく抑える。
+const BUILDING_SCALE_LIMITS = new Map([[2, 1.19], [7, 1.20], [8, 1.20], [24, 1.20]]);
+// 建物をXYZ同率で拡大したまま、接近する2組だけ敷地内で数十cmずらして間隔を保つ。
+const BUILDING_POSITION_OFFSETS = new Map([[8, { x: 0.26, z: 0 }], [21, { x: -0.22, z: 0 }], [24, { x: 0, z: 0.12 }]]);
+const BUILDING_SCALE_REVISION = "20260822-building-proportion";
 const ROAD_OBSTACLE_CLEARANCE = 0.3;
 const ROAD_HALF_WIDTH = (CELL_SIZE - BLOCK_SIZE) / 2;
 const ROAD_CENTER_XS = Array.from(
@@ -212,12 +215,13 @@ function createBuildingLayout(name, index) {
   const footprint = minimumSize + random() * (maximumSize - minimumSize);
   const offsetX = (random() * 2 - 1) * 0.32;
   const offsetZ = (random() * 2 - 1) * 0.25;
+  const positionOffset = BUILDING_POSITION_OFFSETS.get(index) ?? { x: 0, z: 0 };
   // 建物正面を外周道路へ向け、10%だけ横向きの古い建物を混ぜる。
   const rotation = (isSouthSide ? Math.PI : 0) + (random() < 0.1 ? Math.PI / 2 : 0);
 
   return {
-    x: blockX + localX + offsetX,
-    z: blockZ + localZ + offsetZ,
+    x: blockX + localX + offsetX + positionOffset.x,
+    z: blockZ + localZ + offsetZ + positionOffset.z,
     footprint,
     rotation,
     blockIndex,
@@ -577,6 +581,7 @@ renderer.domElement.dataset.crosswalkDiagnostics = JSON.stringify(crosswalkDiagn
 
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
+const cameraOccluderBoxes = []; // 追従カメラを壁の手前へ止める建物専用AABB
 
 const streetAssetDiagnostics = {
   expected: parkingVehicleSpots.length + curatedPropSpots.length,
@@ -956,6 +961,8 @@ window.__buildingDiagnostics = buildingDiagnostics;
 renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length);
 renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
+renderer.domElement.dataset.buildingScaleRevision = BUILDING_SCALE_REVISION;
+renderer.domElement.dataset.buildingPositionOffsets = JSON.stringify(Object.fromEntries(BUILDING_POSITION_OFFSETS));
 renderer.domElement.dataset.buildingScaleLimits = JSON.stringify(Object.fromEntries(BUILDING_SCALE_LIMITS));
 renderer.domElement.dataset.facadeSignsPlaced = "0";
 const buildingDetailSystem = createBuildingDetailSystem({
@@ -981,6 +988,7 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
     minZ: layout.z - d / 2, maxZ: layout.z + d / 2,
   };
   buildingBoxes.push(boxEntry);
+  cameraOccluderBoxes.push(boxEntry);
 
   loader.load(
     `assets/${name}.glb`,
@@ -1366,12 +1374,68 @@ function updatePlayer(dt) {
 const CAMERA_DIST = 4.5;
 const CAMERA_HEIGHT = 2.6;
 const CAMERA_TARGET_HEIGHT = 0.84;
-function updateCamera() {
+const CAMERA_COLLISION_PADDING = 0.12;
+const CAMERA_WALL_GAP = 0.16;
+const CAMERA_MIN_DIST = 0.85;
+let currentCameraDistance = CAMERA_DIST;
+
+function segmentBoxEntryTime(startX, startZ, endX, endZ, box, padding) {
+  let entry = 0;
+  let exit = 1;
+  const axes = [
+    [startX, endX - startX, box.minX - padding, box.maxX + padding],
+    [startZ, endZ - startZ, box.minZ - padding, box.maxZ + padding],
+  ];
+
+  for (const [start, delta, minimum, maximum] of axes) {
+    if (Math.abs(delta) < 1e-6) {
+      if (start < minimum || start > maximum) return null;
+      continue;
+    }
+    let near = (minimum - start) / delta;
+    let far = (maximum - start) / delta;
+    if (near > far) [near, far] = [far, near];
+    entry = Math.max(entry, near);
+    exit = Math.min(exit, far);
+    if (entry > exit) return null;
+  }
+  return entry >= 0 && entry <= 1 ? entry : null;
+}
+
+function allowedCameraDistance(playerPosition, directionX, directionZ) {
+  const desiredX = playerPosition.x + directionX * CAMERA_DIST;
+  const desiredZ = playerPosition.z + directionZ * CAMERA_DIST;
+  let nearestEntry = 1;
+
+  cameraOccluderBoxes.forEach((box) => {
+    const entry = segmentBoxEntryTime(
+      playerPosition.x,
+      playerPosition.z,
+      desiredX,
+      desiredZ,
+      box,
+      CAMERA_COLLISION_PADDING
+    );
+    if (entry !== null && entry < nearestEntry) nearestEntry = entry;
+  });
+
+  return Math.max(CAMERA_MIN_DIST, CAMERA_DIST * nearestEntry - CAMERA_WALL_GAP);
+}
+
+function updateCamera(dt) {
   const p = player.position;
-  const offsetX = Math.sin(cameraYaw) * CAMERA_DIST;
-  const offsetZ = Math.cos(cameraYaw) * CAMERA_DIST;
+  const directionX = Math.sin(cameraYaw);
+  const directionZ = Math.cos(cameraYaw);
+  const allowedDistance = allowedCameraDistance(p, directionX, directionZ);
+  currentCameraDistance = allowedDistance < currentCameraDistance
+    ? allowedDistance
+    : THREE.MathUtils.damp(currentCameraDistance, allowedDistance, 7, dt);
+  const offsetX = directionX * currentCameraDistance;
+  const offsetZ = directionZ * currentCameraDistance;
   camera.position.set(p.x + offsetX, p.y + CAMERA_HEIGHT, p.z + offsetZ);
   camera.lookAt(p.x, p.y + CAMERA_TARGET_HEIGHT, p.z);
+  renderer.domElement.dataset.cameraDistance = currentCameraDistance.toFixed(3);
+  renderer.domElement.dataset.cameraCollisionActive = String(currentCameraDistance < CAMERA_DIST - 0.01);
 }
 
 // ---------- FPS表示 ----------
@@ -1388,7 +1452,7 @@ function loop(now) {
 
   if (!visualQa.enabled) {
     updatePlayer(dt);
-    updateCamera();
+    updateCamera(dt);
   } else {
     visualQa.applyFixedCamera();
   }

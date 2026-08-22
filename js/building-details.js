@@ -51,6 +51,7 @@ export function createBuildingDetailSystem({
     depthWrite: true,
   });
   const thresholdMaterial = new THREE.MeshStandardMaterial({ color: 0x6f716d, roughness: 0.82, metalness: 0.18 });
+  const entranceFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x4b5050, roughness: 0.7, metalness: 0.32 });
   const canopyMaterial = new THREE.MeshStandardMaterial({ color: 0x4c5557, roughness: 0.68, metalness: 0.42 });
   const pipeMaterial = new THREE.MeshStandardMaterial({ color: 0x767b79, roughness: 0.72, metalness: 0.48 });
   const unitMaterial = new THREE.MeshStandardMaterial({ color: 0xacaea8, roughness: 0.78, metalness: 0.15 });
@@ -64,6 +65,7 @@ export function createBuildingDetailSystem({
   applySurface(doorMaterial, surfaceMaps?.metal, 0.12);
   applySurface(glassMaterial, surfaceMaps?.metal, 0.035);
   applySurface(thresholdMaterial, surfaceMaps?.concrete, 0.08);
+  applySurface(entranceFrameMaterial, surfaceMaps?.metal, 0.09);
   applySurface(canopyMaterial, surfaceMaps?.metal, 0.13);
   applySurface(pipeMaterial, surfaceMaps?.metal, 0.1);
   applySurface(unitMaterial, surfaceMaps?.metal, 0.09);
@@ -80,6 +82,10 @@ export function createBuildingDetailSystem({
   const thresholds = createInstancedPart(
     THREE, scene, "building-thresholds",
     new THREE.BoxGeometry(1, 1, 1), thresholdMaterial, maxBuildings
+  );
+  const entranceFrames = createInstancedPart(
+    THREE, scene, "building-entrance-frames",
+    new THREE.BoxGeometry(1, 1, 1), entranceFrameMaterial, maxBuildings * 3
   );
   const storefronts = createInstancedPart(
     THREE, scene, "ground-floor-storefronts",
@@ -107,10 +113,11 @@ export function createBuildingDetailSystem({
     buildingsDetailed: 0,
     entrances: [],
     storefronts: 0,
+    entranceFrameParts: 0,
     canopies: 0,
     downpipes: 0,
     outdoorUnits: 0,
-    addedDrawCalls: 8,
+    addedDrawCalls: 9,
   };
   window.__buildingDetailDiagnostics = diagnostics;
 
@@ -139,13 +146,41 @@ export function createBuildingDetailSystem({
     const glassPoint = facadePoint.clone().addScaledVector(front, 0.008);
     glassPoint.y += 0.11;
     updateInstance(THREE, doorGlass, glassPoint, facingRotation, new THREE.Vector3(doorWidth * 0.66, doorHeight * 0.68, 1));
+    const frameThickness = commercial ? 0.09 : 0.075;
+    const frameDepth = commercial ? 0.10 : 0.085;
+    const frameCenter = facadePoint.clone().addScaledVector(front, frameDepth / 2);
+    [-1, 1].forEach((side) => {
+      const jambPoint = frameCenter.clone().addScaledVector(tangent, side * (doorWidth / 2 + frameThickness / 2));
+      jambPoint.y = curbHeight + (doorHeight + frameThickness) / 2;
+      updateInstance(
+        THREE,
+        entranceFrames,
+        jambPoint,
+        facingRotation,
+        new THREE.Vector3(frameThickness, doorHeight + frameThickness, frameDepth)
+      );
+      diagnostics.entranceFrameParts += 1;
+    });
+    const lintelPoint = frameCenter.clone();
+    lintelPoint.y = curbHeight + doorHeight + frameThickness / 2;
+    updateInstance(
+      THREE,
+      entranceFrames,
+      lintelPoint,
+      facingRotation,
+      new THREE.Vector3(doorWidth + frameThickness * 2, frameThickness, frameDepth)
+    );
+    diagnostics.entranceFrameParts += 1;
     const thresholdPoint = new THREE.Vector3(
       facadePoint.x + front.x * 0.16,
       curbHeight + 0.035,
       facadePoint.z + front.z * 0.16
     );
     updateInstance(THREE, thresholds, thresholdPoint, facingRotation, new THREE.Vector3(doorWidth + 0.18, 0.07, 0.32));
-    recordObstacle?.(`entrance:${index}`, facadeBox(THREE, facadePoint, front, doorWidth, doorHeight, 0.04));
+    recordObstacle?.(
+      `entrance:${index}`,
+      facadeBox(THREE, frameCenter, front, doorWidth + frameThickness * 2, doorHeight + frameThickness, frameDepth)
+    );
 
     diagnostics.entrances.push({ index, width: doorWidth, height: doorHeight });
     diagnostics.buildingsDetailed += 1;
@@ -165,12 +200,15 @@ export function createBuildingDetailSystem({
       diagnostics.storefronts += 1;
     }
 
-    if (commercial && random() < 0.72) {
-      const canopyWidth = Math.min(facadeWidth - 0.35, Math.max(1.65, doorWidth + 0.75));
-      const canopyDepth = 0.48 + random() * 0.16;
+    const shouldAddCanopy = random() < (commercial ? 0.72 : 0.5);
+    if (shouldAddCanopy) {
+      const canopyWidth = commercial
+        ? Math.min(facadeWidth - 0.35, Math.max(1.65, doorWidth + 0.75))
+        : Math.min(facadeWidth - 0.35, doorWidth + 0.42);
+      const canopyDepth = commercial ? 0.48 + random() * 0.16 : 0.34 + random() * 0.08;
       const canopyPoint = new THREE.Vector3(
         facadePoint.x + front.x * canopyDepth / 2,
-        curbHeight + 2.28,
+        curbHeight + doorHeight + (commercial ? 0.18 : 0.14),
         facadePoint.z + front.z * canopyDepth / 2
       );
       const canopyBounds = facadeBox(THREE, canopyPoint, front, canopyWidth, 0.11, canopyDepth);
