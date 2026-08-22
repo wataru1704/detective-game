@@ -1,12 +1,13 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260822m";
 import { createVisualQa } from "./visual-qa.js?v=20260822u";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822n";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
 import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822s";
+import { createRealisticRooftopEquipmentSystem, createRealisticStreetlightSystem } from "./realistic-infrastructure.js?v=20260822a";
 
 const scene = new THREE.Scene();
 
@@ -781,41 +782,17 @@ function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizonta
 
 // ---------- 街灯（車道灯として現実的な高さにそろえる） ----------
 const STREETLIGHT_HEIGHT = 5.2;
-const streetlightPoleGeometry = new THREE.CylinderGeometry(0.055, 0.075, STREETLIGHT_HEIGHT, 8);
-const streetlightArmGeometry = new THREE.BoxGeometry(0.5, 0.055, 0.055);
-const streetlightLampGeometry = new THREE.BoxGeometry(0.22, 0.1, 0.16);
-const streetlightPoleMaterial = new THREE.MeshStandardMaterial({ color: 0x30343a, roughness: 0.55, metalness: 0.7 });
-const streetlightLampMaterial = new THREE.MeshStandardMaterial({
-  color: 0xffd89a,
-  emissive: 0xffb75c,
-  emissiveIntensity: 2.3,
-  roughness: 0.35,
+const streetlightSystem = createRealisticStreetlightSystem({
+  THREE,
+  scene,
+  capacity: gridRows * GRID_COLS,
+  height: STREETLIGHT_HEIGHT,
+  groundY: CURB_HEIGHT,
 });
 
 function addStreetlight(x, z, rotation, addLocalLight) {
-  const streetlight = new THREE.Group();
-  const pole = new THREE.Mesh(streetlightPoleGeometry, streetlightPoleMaterial);
-  pole.position.y = STREETLIGHT_HEIGHT / 2;
-  pole.castShadow = true;
-  streetlight.add(pole);
-
-  const arm = new THREE.Mesh(streetlightArmGeometry, streetlightPoleMaterial);
-  arm.position.set(0.2, STREETLIGHT_HEIGHT - 0.08, 0);
-  streetlight.add(arm);
-
-  const lamp = new THREE.Mesh(streetlightLampGeometry, streetlightLampMaterial);
-  lamp.position.set(0.43, STREETLIGHT_HEIGHT - 0.13, 0);
-  streetlight.add(lamp);
-
-  if (addLocalLight) {
-    const light = new THREE.PointLight(0xffc06b, 0.8, 6, 2);
-    light.position.set(0.43, STREETLIGHT_HEIGHT - 0.2, 0);
-    streetlight.add(light);
-  }
-
-  streetlight.position.set(x, CURB_HEIGHT, z);
-  streetlight.rotation.y = rotation;
-  scene.add(streetlight);
+  streetlightSystem.add({ x, z, rotationY: rotation, addLocalLight });
+  renderer.domElement.dataset.streetlights = String(streetlightSystem.count);
   const poleRadius = 0.075;
   recordRoadsideObstacle(
     `streetlight:${x}:${z}`,
@@ -868,8 +845,6 @@ const materialPresets = [
   { base: 0x61796d, trim: 0x789084, door: 0x344a40, tex: "panel" }, // 緑青の金属板
   { base: 0x5c646c, trim: 0x737b83, door: 0x30363d, tex: "glass" }, // ダークガラス
 ];
-// 窓が点灯している場合の色（暖色メイン、たまに白っぽい/やや寒色も混ぜる）
-const windowLitColors = ["#ffcc77", "#ffd9a0", "#fff0c8", "#cfe0ff"];
 
 // ---------- 建物のテクスチャ生成（PS2〜PSP時代のGTAのような、模様のある壁を再現） ----------
 function makePanelTexture() {
@@ -957,25 +932,42 @@ function makeBrickTexture() {
   return tex;
 }
 
-// 建物ごとに毎回新規生成（1枚ずつ違う窓の点灯パターンにするため）
+// 小さな窓メッシュへ窓グリッドを貼るとモザイク状になるため、1枚のガラス面として描く。
 function makeWindowGridTexture(random) {
-  const cols = 6;
-  const rows = 10;
-  const cell = 24;
   const canvas = document.createElement("canvas");
-  canvas.width = cols * cell;
-  canvas.height = rows * cell;
+  canvas.width = 128;
+  canvas.height = 128;
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#14161c";
+  const lit = random() < 0.48;
+  const glassGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  glassGradient.addColorStop(0, lit ? "#8b7659" : "#26313a");
+  glassGradient.addColorStop(0.55, lit ? "#ad9166" : "#17232d");
+  glassGradient.addColorStop(1, lit ? "#574b3d" : "#101820");
+  ctx.fillStyle = glassGradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const x = c * cell;
-      const y = r * cell;
-      const roll = random();
-      ctx.fillStyle = roll < 0.5 ? "#14161c" : windowLitColors[Math.floor(random() * windowLitColors.length)];
-      ctx.fillRect(x + 3, y + 3, cell - 6, cell - 8);
-    }
+  for (let reflection = 0; reflection < 3; reflection += 1) {
+    const x = 8 + reflection * 39 + random() * 10;
+    const width = 12 + random() * 13;
+    const reflectionGradient = ctx.createLinearGradient(x, 0, x + width, 0);
+    reflectionGradient.addColorStop(0, "rgba(184,205,214,0)");
+    reflectionGradient.addColorStop(0.5, `rgba(184,205,214,${0.12 + random() * 0.1})`);
+    reflectionGradient.addColorStop(1, "rgba(184,205,214,0)");
+    ctx.fillStyle = reflectionGradient;
+    ctx.fillRect(x, 0, width, canvas.height);
+  }
+  ctx.strokeStyle = lit ? "rgba(58,49,41,0.18)" : "rgba(195,205,207,0.1)";
+  ctx.lineWidth = 1;
+  for (let y = 18; y < canvas.height; y += 17) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(canvas.width, y);
+    ctx.stroke();
+  }
+  for (let mark = 0; mark < 18; mark += 1) {
+    const x = random() * canvas.width;
+    const y = random() * canvas.height;
+    ctx.fillStyle = `rgba(210,205,190,${0.015 + random() * 0.025})`;
+    ctx.fillRect(x, y, 1 + random() * 4, 1 + random() * 3);
   }
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -990,15 +982,10 @@ const brickTexture = makeBrickTexture();
 const windowTextureCache = Array.from({ length: 8 }, (_, index) =>
   makeWindowGridTexture(createSeededRandom(CITY_LAYOUT_SEED + 700000 + index * 7919))
 );
-const rooftopUnitGeometry = new THREE.BoxGeometry(0.65, 0.3, 0.5);
-const rooftopUnitMaterial = new THREE.MeshStandardMaterial({ color: 0x42474d, roughness: 0.8, metalness: 0.35 });
 const MAX_ROOFTOP_UNITS = (TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length) * 2;
-const rooftopUnitInstances = new THREE.InstancedMesh(rooftopUnitGeometry, rooftopUnitMaterial, MAX_ROOFTOP_UNITS);
-rooftopUnitInstances.name = "RooftopEquipment:instanced";
-rooftopUnitInstances.count = 0;
-rooftopUnitInstances.castShadow = false;
-rooftopUnitInstances.receiveShadow = true;
-scene.add(rooftopUnitInstances);
+const rooftopEquipmentSystem = createRealisticRooftopEquipmentSystem({
+  THREE, scene, capacity: MAX_ROOFTOP_UNITS,
+});
 let rooftopUnitCount = 0;
 
 const storefrontLabels = ["山田商店", "喫茶みなと", "中華そば", "青葉薬局", "クリーニング", "大衆酒場"];
@@ -1200,18 +1187,10 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
             topY + 0.15,
             buildingCenterZ + (decorRandom() * 2 - 1) * roofOffsetZ
           );
-          const rooftopUnitRotation = new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(0, decorRandom() * Math.PI, 0)
-          );
-          const rooftopUnitMatrix = new THREE.Matrix4().compose(
-            rooftopUnitPosition,
-            rooftopUnitRotation,
-            new THREE.Vector3(1, 1, 1)
-          );
-          rooftopUnitInstances.setMatrixAt(rooftopUnitCount, rooftopUnitMatrix);
-          rooftopUnitCount += 1;
-          rooftopUnitInstances.count = rooftopUnitCount;
-          rooftopUnitInstances.instanceMatrix.needsUpdate = true;
+          const rooftopUnitRotation = decorRandom() * Math.PI;
+          rooftopUnitCount = rooftopEquipmentSystem.add({
+            position: rooftopUnitPosition, rotationY: rooftopUnitRotation,
+          });
           renderer.domElement.dataset.rooftopUnits = String(rooftopUnitCount);
         }
       }

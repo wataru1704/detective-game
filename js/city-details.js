@@ -1,3 +1,5 @@
+import { createDetailedTrafficSignal, createDetailedVendingMachine } from "./realistic-infrastructure.js?v=20260822a";
+
 /**
  * 日本の住宅・商業混在街区らしい生活設備を、軽量な共通形状で追加する。
  * 同じ形状をまとめて描くことで、スマホでも描画回数を増やしすぎない。
@@ -333,40 +335,16 @@ export function createJapaneseCityDetails({
   addWire(0.16, 5.9, 0.62);
 
   function addTrafficSignal(intersectionZ, direction) {
-    const group = new THREE.Group();
-    const side = direction;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.095, 3.6, 10), galvanizedMaterial);
-    pole.position.y = 1.8;
-    pole.castShadow = true;
-    group.add(pole);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(3.05, 0.1, 0.1), galvanizedMaterial);
-    arm.position.set(-side * 1.46, 3.3, 0);
-    group.add(arm);
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.34, 0.28), darkMetalMaterial);
-    housing.position.set(-side * 2.65, 3.2, 0);
-    group.add(housing);
-    const signalColors = [0x3b1918, 0x806b19, 0x1e6c54];
-    signalColors.forEach((color, index) => {
-      const lens = new THREE.Mesh(
-        new THREE.CircleGeometry(0.085, 12),
-        new THREE.MeshStandardMaterial({
-          color,
-          emissive: index === 2 ? 0x2b7f63 : 0x000000,
-          emissiveIntensity: index === 2 ? 1.1 : 0,
-        })
-      );
-      lens.position.set(-side * (2.92 - index * 0.27), 3.2, side > 0 ? -0.145 : 0.145);
-      lens.rotation.y = side > 0 ? Math.PI : 0;
-      group.add(lens);
-    });
-    // 柱は交差する2本の道路から外れた歩道角へ置き、腕だけを車道上へ出す。
-    const cornerClearance = 0.45;
-    group.position.set(
-      mainRoadX + side * (roadHalfWidth + cornerClearance),
+    const group = createDetailedTrafficSignal({
+      THREE,
+      parent: details,
+      materials: { galvanized: galvanizedMaterial, darkMetal: darkMetalMaterial },
+      intersectionZ,
+      direction,
+      mainRoadX,
+      roadHalfWidth,
       curbHeight,
-      intersectionZ + side * (roadHalfWidth + cornerClearance)
-    );
-    details.add(group);
+    });
     group.updateMatrixWorld(true);
     const signalBox = new THREE.Box3().setFromObject(group);
     cityDetailDiagnostics.signals.push({
@@ -408,15 +386,14 @@ export function createJapaneseCityDetails({
     const center = lotCenter(index);
     const x = center.x + blockSize / 2 - 0.66;
     const z = center.z + (index % 2 === 0 ? 1.45 : -1.35);
-    addBox(new THREE.Vector3(0.72, 1.75, 0.62), new THREE.Vector3(x, curbHeight + 0.875, z), new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
-    const texture = makeLabelTexture(label, "#f0eee6", "#c2362d");
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.56, 1.18),
-      new THREE.MeshStandardMaterial({ map: texture, emissiveMap: texture, emissive: 0xffffff, emissiveIntensity: 0.18 })
-    );
-    face.position.set(x - 0.365, curbHeight + 1.02, z);
-    face.rotation.y = -Math.PI / 2;
-    details.add(face);
+    createDetailedVendingMachine({
+      THREE,
+      parent: details,
+      position: new THREE.Vector3(x, curbHeight, z),
+      rotationY: -Math.PI / 2,
+      accent: `#${color.toString(16).padStart(6, "0")}`,
+      seed: index,
+    });
   }
   addVendingMachine(6, 0xd8d5cd, "飲料");
   addVendingMachine(4, 0x3d5870, "珈琲");
