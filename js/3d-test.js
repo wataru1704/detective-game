@@ -2,7 +2,7 @@
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { createJapaneseCityDetails } from "./city-details.js?v=20260822l";
-import { createVisualQa } from "./visual-qa.js?v=20260822n";
+import { createVisualQa } from "./visual-qa.js?v=20260822s";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822l";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
@@ -541,6 +541,7 @@ const CROSSWALK_DEPTH = Math.min(1.1, crosswalkSize * 0.8); // 横断歩道帯�
 // 縞を車道のほぼ端まで伸ばし、4方向の帯は交差点の外側へ離して重なりを防ぐ
 // 歩道との間にはわずかな余白を残す
 const CROSSWALK_LENGTH = crosswalkSize - 0.28;
+const crosswalkDiagnostics = [];
 
 for (let c = 0; c < GRID_COLS - 1; c++) {
   if (c !== MAIN_ROAD_CORRIDOR) continue;
@@ -556,6 +557,7 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x, 0.02, z + sign * half);
       scene.add(cw);
+      crosswalkDiagnostics.push({ direction: "east-west", x, z: z + sign * half, length: CROSSWALK_LENGTH });
     });
 
     // 東西の通り（X方向）を、南北に渡る横断歩道。交差点の東西の入口2箇所に配置
@@ -565,9 +567,13 @@ for (let c = 0; c < GRID_COLS - 1; c++) {
       cw.rotation.x = -Math.PI / 2;
       cw.position.set(x + sign * half, 0.02, z);
       scene.add(cw);
+      crosswalkDiagnostics.push({ direction: "north-south", x: x + sign * half, z, length: CROSSWALK_LENGTH });
     });
   }
 }
+
+window.__crosswalkDiagnostics = crosswalkDiagnostics;
+renderer.domElement.dataset.crosswalkDiagnostics = JSON.stringify(crosswalkDiagnostics);
 
 const loader = new GLTFLoader();
 const buildingBoxes = []; // 当たり判定用（world座標のAABB）
@@ -909,6 +915,14 @@ const windowTextureCache = Array.from({ length: 8 }, (_, index) =>
 );
 const rooftopUnitGeometry = new THREE.BoxGeometry(0.65, 0.3, 0.5);
 const rooftopUnitMaterial = new THREE.MeshStandardMaterial({ color: 0x42474d, roughness: 0.8, metalness: 0.35 });
+const MAX_ROOFTOP_UNITS = (TOTAL_CITY_SLOTS - OPEN_LOT_INDICES.length) * 2;
+const rooftopUnitInstances = new THREE.InstancedMesh(rooftopUnitGeometry, rooftopUnitMaterial, MAX_ROOFTOP_UNITS);
+rooftopUnitInstances.name = "RooftopEquipment:instanced";
+rooftopUnitInstances.count = 0;
+rooftopUnitInstances.castShadow = false;
+rooftopUnitInstances.receiveShadow = true;
+scene.add(rooftopUnitInstances);
+let rooftopUnitCount = 0;
 
 const storefrontLabels = ["山田商店", "喫茶みなと", "中華そば", "青葉薬局", "クリーニング", "大衆酒場"];
 const storefrontColors = ["#8c4036", "#345d6b", "#a07835", "#47705d", "#786b52", "#6e3f45"];
@@ -1085,15 +1099,24 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       if (decorRandom() < 0.78) {
         const unitCount = decorRandom() < 0.35 ? 2 : 1;
         for (let unitIndex = 0; unitIndex < unitCount; unitIndex++) {
-          const rooftopUnit = new THREE.Mesh(rooftopUnitGeometry, rooftopUnitMaterial);
-          rooftopUnit.position.set(
+          const rooftopUnitPosition = new THREE.Vector3(
             buildingCenterX + (decorRandom() * 2 - 1) * roofOffsetX,
             topY + 0.15,
             buildingCenterZ + (decorRandom() * 2 - 1) * roofOffsetZ
           );
-          rooftopUnit.rotation.y = decorRandom() * Math.PI;
-          rooftopUnit.castShadow = true;
-          scene.add(rooftopUnit);
+          const rooftopUnitRotation = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(0, decorRandom() * Math.PI, 0)
+          );
+          const rooftopUnitMatrix = new THREE.Matrix4().compose(
+            rooftopUnitPosition,
+            rooftopUnitRotation,
+            new THREE.Vector3(1, 1, 1)
+          );
+          rooftopUnitInstances.setMatrixAt(rooftopUnitCount, rooftopUnitMatrix);
+          rooftopUnitCount += 1;
+          rooftopUnitInstances.count = rooftopUnitCount;
+          rooftopUnitInstances.instanceMatrix.needsUpdate = true;
+          renderer.domElement.dataset.rooftopUnits = String(rooftopUnitCount);
         }
       }
 
