@@ -7,6 +7,8 @@ const QA_VIEWS = [
   { name: "signal-crosswalk", position: [12, 11, -23], target: [12, 0.15, -12] },
   { name: "service-alley", position: [-8, 2.35, 0], target: [8, 1.05, 0] },
   { name: "city-edge-transition", position: [42, 3.2, 12], target: [29, 2.0, 12] },
+  { name: "west-alley-mirror", position: [-6.8, 2.25, -3.6], target: [-8.3, 2.05, -1.55] },
+  { name: "east-alley-mirror", position: [6.8, 2.25, -3.6], target: [8.3, 2.05, -1.55] },
 ];
 
 function numberParam(params, name, fallback, min, max) {

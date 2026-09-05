@@ -18,7 +18,7 @@ export function createJapaneseCityDetails({
   const details = new THREE.Group();
   details.name = "JapaneseCityDetails";
   scene.add(details);
-  const cityDetailDiagnostics = { signals: [], signs: [], obstacles: [], roadIntrusions: [] };
+  const cityDetailDiagnostics = { signals: [], signs: [], mirrors: [], outdoorUnits: [], obstacles: [], roadIntrusions: [] };
 
   const roadWidth = cellSize - blockSize;
   const roadHalfWidth = roadWidth / 2;
@@ -144,6 +144,92 @@ export function createJapaneseCityDetails({
     details.add(mesh);
     return mesh;
   }
+
+  // 狭い生活道路の出口にあるオレンジ色の道路反射鏡。2基をインスタンス化し、
+  // 見た目の密度を上げつつ描画回数と衝突判定数を抑える。
+  const mirrorSpecs = [
+    { x: -8.45, z: -1.55, yaw: Math.PI / 2 },
+    { x: 8.45, z: -1.55, yaw: -Math.PI / 2 },
+  ];
+  const mirrorPoleHeight = 2.15;
+  const mirrorCenterHeight = curbHeight + 2.23;
+  const mirrorPoleGeometry = new THREE.CylinderGeometry(0.045, 0.055, mirrorPoleHeight, 10);
+  const mirrorArmGeometry = new THREE.CylinderGeometry(0.032, 0.032, 0.24, 8);
+  const mirrorBackGeometry = new THREE.CylinderGeometry(0.38, 0.38, 0.07, 28);
+  const mirrorFaceGeometry = new THREE.CircleGeometry(0.335, 28);
+  const mirrorRimGeometry = new THREE.TorusGeometry(0.354, 0.024, 8, 28);
+  const mirrorOrangeMaterial = new THREE.MeshStandardMaterial({ color: 0xe26a17, roughness: 0.62, metalness: 0.12 });
+  const mirrorFaceCanvas = document.createElement("canvas");
+  mirrorFaceCanvas.width = 128;
+  mirrorFaceCanvas.height = 128;
+  const mirrorFaceContext = mirrorFaceCanvas.getContext("2d");
+  const mirrorSkyRoadGradient = mirrorFaceContext.createLinearGradient(0, 0, 0, 128);
+  mirrorSkyRoadGradient.addColorStop(0, "#92aeb9");
+  mirrorSkyRoadGradient.addColorStop(0.48, "#c9d2cf");
+  mirrorSkyRoadGradient.addColorStop(0.52, "#747a76");
+  mirrorSkyRoadGradient.addColorStop(1, "#3f494b");
+  mirrorFaceContext.fillStyle = mirrorSkyRoadGradient;
+  mirrorFaceContext.fillRect(0, 0, 128, 128);
+  const mirrorHighlight = mirrorFaceContext.createRadialGradient(46, 38, 4, 64, 64, 62);
+  mirrorHighlight.addColorStop(0, "rgba(255,255,255,0.42)");
+  mirrorHighlight.addColorStop(0.55, "rgba(255,255,255,0.08)");
+  mirrorHighlight.addColorStop(1, "rgba(14,22,24,0.34)");
+  mirrorFaceContext.fillStyle = mirrorHighlight;
+  mirrorFaceContext.fillRect(0, 0, 128, 128);
+  const mirrorFaceTexture = new THREE.CanvasTexture(mirrorFaceCanvas);
+  mirrorFaceTexture.colorSpace = THREE.SRGBColorSpace;
+  const mirrorFaceMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    map: mirrorFaceTexture,
+    roughness: 0.16,
+    metalness: 0.18,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.1,
+  });
+  const mirrorPoleMesh = new THREE.InstancedMesh(mirrorPoleGeometry, galvanizedMaterial, mirrorSpecs.length);
+  const mirrorArmMesh = new THREE.InstancedMesh(mirrorArmGeometry, galvanizedMaterial, mirrorSpecs.length);
+  const mirrorBackMesh = new THREE.InstancedMesh(mirrorBackGeometry, mirrorOrangeMaterial, mirrorSpecs.length);
+  const mirrorFaceMesh = new THREE.InstancedMesh(mirrorFaceGeometry, mirrorFaceMaterial, mirrorSpecs.length);
+  const mirrorRimMesh = new THREE.InstancedMesh(mirrorRimGeometry, mirrorOrangeMaterial, mirrorSpecs.length);
+  const mirrorMatrix = new THREE.Matrix4();
+  const mirrorQuaternion = new THREE.Quaternion();
+  const mirrorScale = new THREE.Vector3(1, 1, 1);
+  const cylinderAxis = new THREE.Vector3(0, 1, 0);
+  const faceAxis = new THREE.Vector3(0, 0, 1);
+  mirrorSpecs.forEach((spec, index) => {
+    const normal = new THREE.Vector3(Math.sin(spec.yaw), 0, Math.cos(spec.yaw));
+    const polePosition = new THREE.Vector3(spec.x, curbHeight + mirrorPoleHeight / 2, spec.z);
+    mirrorMatrix.compose(polePosition, new THREE.Quaternion(), mirrorScale);
+    mirrorPoleMesh.setMatrixAt(index, mirrorMatrix);
+
+    const mirrorCenter = polePosition.clone().setY(mirrorCenterHeight).addScaledVector(normal, 0.16);
+    const armStart = new THREE.Vector3(spec.x, curbHeight + mirrorPoleHeight - 0.02, spec.z);
+    const armVector = mirrorCenter.clone().sub(armStart);
+    mirrorQuaternion.setFromUnitVectors(cylinderAxis, armVector.clone().normalize());
+    mirrorMatrix.compose(
+      armStart.clone().add(mirrorCenter).multiplyScalar(0.5),
+      mirrorQuaternion,
+      new THREE.Vector3(1, armVector.length() / 0.24, 1)
+    );
+    mirrorArmMesh.setMatrixAt(index, mirrorMatrix);
+
+    mirrorQuaternion.setFromUnitVectors(cylinderAxis, normal);
+    mirrorMatrix.compose(mirrorCenter, mirrorQuaternion, mirrorScale);
+    mirrorBackMesh.setMatrixAt(index, mirrorMatrix);
+
+    mirrorQuaternion.setFromUnitVectors(faceAxis, normal);
+    mirrorMatrix.compose(mirrorCenter.clone().addScaledVector(normal, 0.041), mirrorQuaternion, mirrorScale);
+    mirrorFaceMesh.setMatrixAt(index, mirrorMatrix);
+    mirrorMatrix.compose(mirrorCenter.clone().addScaledVector(normal, 0.046), mirrorQuaternion, mirrorScale);
+    mirrorRimMesh.setMatrixAt(index, mirrorMatrix);
+
+    cityDetailDiagnostics.mirrors.push({ x: spec.x, z: spec.z, height: mirrorCenterHeight });
+  });
+  [mirrorPoleMesh, mirrorArmMesh, mirrorBackMesh, mirrorFaceMesh, mirrorRimMesh].forEach((mesh) => {
+    mesh.castShadow = mesh !== mirrorFaceMesh;
+    mesh.receiveShadow = mesh !== mirrorFaceMesh;
+    details.add(mesh);
+  });
 
   function makeLabelTexture(text, background, foreground) {
     const canvas = document.createElement("canvas");
@@ -399,27 +485,114 @@ export function createJapaneseCityDetails({
   addVendingMachine(4, 0x3d5870, "珈琲");
   addVendingMachine(2, 0xb84a3c, "飲料");
 
-  // 室外機と配管を建物脇へ置く。外周寄りなので入口や道路を塞がない。
-  [1, 2, 3, 4, 6, 7, 8].forEach((index, order) => {
-    if (openLotIndices.includes(index)) return;
-    const center = lotCenter(index);
-    const side = order % 2 === 0 ? 1 : -1;
-    const x = center.x + side * (blockSize / 2 - 0.64);
-    const z = center.z + ((order % 3) - 1) * 1.05;
-    addBox(
-      new THREE.Vector3(0.68, 0.54, 0.38),
-      new THREE.Vector3(x, curbHeight + 0.27, z),
-      galvanizedMaterial
+  // 室外機は向きを道路・路地側へそろえ、7台を3バッチにまとめる。
+  // 格子ファンをテクスチャ化し、箱＋棒に見えていた背面と太い配管を改善する。
+  const outdoorUnitSpecs = [1, 2, 3, 4, 6, 7, 8]
+    .filter((index) => !openLotIndices.includes(index))
+    .map((index, order) => {
+      const center = lotCenter(index);
+      const side = order % 2 === 0 ? 1 : -1;
+      return {
+        index,
+        side,
+        x: center.x + side * (blockSize / 2 - 0.64),
+        z: center.z + ((order % 3) - 1) * 1.05,
+      };
+    });
+  const outdoorUnitMaterial = new THREE.MeshStandardMaterial({
+    color: 0xa8aaa4,
+    roughness: 0.72,
+    metalness: 0.24,
+    ...surfaceOptions(surfaceMaps?.metal, 0.06),
+  });
+  const outdoorPipeMaterial = new THREE.MeshStandardMaterial({ color: 0xb8b09a, roughness: 0.78, metalness: 0.18 });
+  const outdoorFanCanvas = document.createElement("canvas");
+  outdoorFanCanvas.width = 128;
+  outdoorFanCanvas.height = 96;
+  const outdoorFanContext = outdoorFanCanvas.getContext("2d");
+  outdoorFanContext.fillStyle = "#747976";
+  outdoorFanContext.fillRect(0, 0, 128, 96);
+  outdoorFanContext.translate(64, 48);
+  outdoorFanContext.fillStyle = "#2a2f31";
+  outdoorFanContext.beginPath();
+  outdoorFanContext.arc(0, 0, 34, 0, Math.PI * 2);
+  outdoorFanContext.fill();
+  outdoorFanContext.fillStyle = "#555d5e";
+  for (let blade = 0; blade < 7; blade++) {
+    outdoorFanContext.save();
+    outdoorFanContext.rotate(blade / 7 * Math.PI * 2);
+    outdoorFanContext.beginPath();
+    outdoorFanContext.ellipse(0, -15, 8, 20, 0.4, 0, Math.PI * 2);
+    outdoorFanContext.fill();
+    outdoorFanContext.restore();
+  }
+  outdoorFanContext.strokeStyle = "rgba(205,211,207,0.78)";
+  outdoorFanContext.lineWidth = 2;
+  for (let ring = 13; ring <= 34; ring += 7) {
+    outdoorFanContext.beginPath();
+    outdoorFanContext.arc(0, 0, ring, 0, Math.PI * 2);
+    outdoorFanContext.stroke();
+  }
+  for (let spoke = 0; spoke < 8; spoke++) {
+    const angle = spoke / 8 * Math.PI * 2;
+    outdoorFanContext.beginPath();
+    outdoorFanContext.moveTo(Math.cos(angle) * 5, Math.sin(angle) * 5);
+    outdoorFanContext.lineTo(Math.cos(angle) * 35, Math.sin(angle) * 35);
+    outdoorFanContext.stroke();
+  }
+  outdoorFanContext.resetTransform();
+  outdoorFanContext.strokeStyle = "rgba(225,228,220,0.72)";
+  outdoorFanContext.lineWidth = 3;
+  outdoorFanContext.strokeRect(3, 3, 122, 90);
+  const outdoorFanTexture = new THREE.CanvasTexture(outdoorFanCanvas);
+  outdoorFanTexture.colorSpace = THREE.SRGBColorSpace;
+  const outdoorFanMaterial = new THREE.MeshStandardMaterial({ map: outdoorFanTexture, roughness: 0.64, metalness: 0.22 });
+  const outdoorBodyMesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(0.68, 0.54, 0.38),
+    outdoorUnitMaterial,
+    outdoorUnitSpecs.length
+  );
+  const outdoorFanMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.52, 0.4),
+    outdoorFanMaterial,
+    outdoorUnitSpecs.length
+  );
+  const outdoorPipeMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.022, 0.022, 0.7, 8),
+    outdoorPipeMaterial,
+    outdoorUnitSpecs.length * 2
+  );
+  const outdoorMatrix = new THREE.Matrix4();
+  const outdoorFaceQuaternion = new THREE.Quaternion();
+  const outdoorScale = new THREE.Vector3(1, 1, 1);
+  outdoorUnitSpecs.forEach((spec, index) => {
+    const bodyPosition = new THREE.Vector3(spec.x, curbHeight + 0.27, spec.z);
+    outdoorMatrix.compose(bodyPosition, new THREE.Quaternion(), outdoorScale);
+    outdoorBodyMesh.setMatrixAt(index, outdoorMatrix);
+
+    const outward = new THREE.Vector3(spec.side, 0, 0);
+    outdoorFaceQuaternion.setFromUnitVectors(faceAxis, outward);
+    outdoorMatrix.compose(
+      new THREE.Vector3(spec.x + spec.side * 0.343, curbHeight + 0.29, spec.z),
+      outdoorFaceQuaternion,
+      outdoorScale
     );
-    const fan = new THREE.Mesh(new THREE.CircleGeometry(0.19, 12), darkMetalMaterial);
-    fan.position.set(x - side * 0.345, curbHeight + 0.29, z);
-    fan.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-    details.add(fan);
-    addBox(
-      new THREE.Vector3(0.055, 1.35, 0.055),
-      new THREE.Vector3(x, curbHeight + 1.1, z + 0.18),
-      concreteMaterial
-    );
+    outdoorFanMesh.setMatrixAt(index, outdoorMatrix);
+
+    [-0.035, 0.035].forEach((zOffset, pipeIndex) => {
+      outdoorMatrix.compose(
+        new THREE.Vector3(spec.x - spec.side * 0.2, curbHeight + 0.65, spec.z + 0.145 + zOffset),
+        new THREE.Quaternion(),
+        new THREE.Vector3(pipeIndex === 0 ? 1 : 0.72, 1, pipeIndex === 0 ? 1 : 0.72)
+      );
+      outdoorPipeMesh.setMatrixAt(index * 2 + pipeIndex, outdoorMatrix);
+    });
+    cityDetailDiagnostics.outdoorUnits.push({ index: spec.index, x: spec.x, z: spec.z, facing: spec.side });
+  });
+  [outdoorBodyMesh, outdoorFanMesh, outdoorPipeMesh].forEach((mesh) => {
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    details.add(mesh);
   });
 
   // 路肩や空地だけに雑草を置き、均等な装飾にならないようにする。
@@ -489,6 +662,24 @@ export function createJapaneseCityDetails({
       new THREE.Box3(
         new THREE.Vector3(poleX - 0.17, curbHeight, z - 0.17),
         new THREE.Vector3(poleX + 0.17, curbHeight + 7.1, z + 0.17)
+      )
+    );
+  });
+  outdoorUnitSpecs.forEach((spec, index) => {
+    recordGroundObstacle(
+      `outdoor-unit:${index}`,
+      new THREE.Box3(
+        new THREE.Vector3(spec.x - 0.34, curbHeight, spec.z - 0.19),
+        new THREE.Vector3(spec.x + 0.34, curbHeight + 1.0, spec.z + 0.19)
+      )
+    );
+  });
+  mirrorSpecs.forEach((spec, index) => {
+    recordGroundObstacle(
+      `traffic-mirror:${index}`,
+      new THREE.Box3(
+        new THREE.Vector3(spec.x - 0.07, curbHeight, spec.z - 0.07),
+        new THREE.Vector3(spec.x + 0.07, curbHeight + mirrorPoleHeight, spec.z + 0.07)
       )
     );
   });

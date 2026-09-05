@@ -1,12 +1,13 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260905a";
-import { createVisualQa } from "./visual-qa.js?v=20260905a";
+import { mergeGeometries } from "https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260906e";
+import { createVisualQa } from "./visual-qa.js?v=20260906c";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822n";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
-import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260822s";
+import { createRealisticStreetAssets } from "./realistic-street-assets.js?v=20260906a";
 import { createRealisticRooftopEquipmentSystem, createRealisticStreetlightSystem } from "./realistic-infrastructure.js?v=20260822a";
 
 const scene = new THREE.Scene();
@@ -696,6 +697,151 @@ renderer.domElement.dataset.crosswalkDiagnostics = JSON.stringify(crosswalkDiagn
 const loader = new GLTFLoader();
 const cameraOccluderBoxes = []; // 追従カメラを壁の手前へ止める建物専用AABB
 
+const buildingBatchDiagnostics = {
+  sourceMeshes: 0,
+  renderedMeshes: 0,
+  mergedMeshes: 0,
+  mergedSourceMeshes: 0,
+  mergeFailures: 0,
+  multiMaterialMeshes: 0,
+  materialGroupsBefore: 0,
+  materialGroupsAfter: 0,
+};
+window.__buildingBatchDiagnostics = buildingBatchDiagnostics;
+renderer.domElement.dataset.buildingBatchDiagnostics = JSON.stringify(buildingBatchDiagnostics);
+
+function splitMultiMaterialBuildingMeshes(model) {
+  model.updateMatrixWorld(true);
+  const replacements = [];
+
+  model.traverse((object) => {
+    if (!object.isMesh || object.isSkinnedMesh || !Array.isArray(object.material)) return;
+    if (Object.keys(object.geometry.morphAttributes || {}).length > 0) return;
+    const groups = object.geometry.groups;
+    if (!groups.length) return;
+
+    const groupedRanges = new Map();
+    groups.forEach((group) => {
+      const material = object.material[group.materialIndex || 0];
+      if (!material) return;
+      if (!groupedRanges.has(material.uuid)) groupedRanges.set(material.uuid, { material, ranges: [] });
+      groupedRanges.get(material.uuid).ranges.push({ start: group.start, count: group.count });
+    });
+    if (groupedRanges.size >= groups.length) return;
+    replacements.push({ object, groupedRanges });
+  });
+
+  replacements.forEach(({ object, groupedRanges }) => {
+    const sourceGeometry = object.geometry;
+    const sourceIndex = sourceGeometry.index;
+    const vertexCount = sourceGeometry.attributes.position.count;
+    const IndexArray = sourceIndex?.array?.constructor || (vertexCount > 65535 ? Uint32Array : Uint16Array);
+    groupedRanges.forEach(({ material, ranges }) => {
+      const indexCount = ranges.reduce((sum, range) => sum + range.count, 0);
+      const indices = new IndexArray(indexCount);
+      let writeOffset = 0;
+      ranges.forEach((range) => {
+        for (let offset = 0; offset < range.count; offset++) {
+          indices[writeOffset++] = sourceIndex ? sourceIndex.getX(range.start + offset) : range.start + offset;
+        }
+      });
+
+      const partGeometry = new THREE.BufferGeometry();
+      Object.entries(sourceGeometry.attributes).forEach(([name, attribute]) => {
+        partGeometry.setAttribute(name, attribute);
+      });
+      partGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      partGeometry.computeBoundingBox();
+      partGeometry.computeBoundingSphere();
+
+      const part = new THREE.Mesh(partGeometry, material);
+      part.name = `${object.name || "building-part"}:${material.name || "material"}`;
+      part.position.copy(object.position);
+      part.quaternion.copy(object.quaternion);
+      part.scale.copy(object.scale);
+      part.matrix.copy(object.matrix);
+      part.matrixAutoUpdate = object.matrixAutoUpdate;
+      part.castShadow = object.castShadow;
+      part.receiveShadow = object.receiveShadow;
+      part.renderOrder = object.renderOrder;
+      object.parent.add(part);
+    });
+
+    buildingBatchDiagnostics.multiMaterialMeshes += 1;
+    buildingBatchDiagnostics.materialGroupsBefore += object.geometry.groups.length;
+    buildingBatchDiagnostics.materialGroupsAfter += groupedRanges.size;
+    object.parent.remove(object);
+  });
+}
+
+function compactStaticBuildingMeshes(model) {
+  model.updateMatrixWorld(true);
+  const rootInverse = new THREE.Matrix4().copy(model.matrixWorld).invert();
+  const batches = new Map();
+  const sourceMeshes = [];
+
+  model.traverse((object) => {
+    if (!object.isMesh || object.isSkinnedMesh || Array.isArray(object.material)) return;
+    const geometry = object.geometry;
+    if (Object.keys(geometry.morphAttributes || {}).length > 0) return;
+    sourceMeshes.push(object);
+    const attributeSignature = Object.entries(geometry.attributes)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, attribute]) => [
+        name,
+        attribute.itemSize,
+        attribute.normalized ? 1 : 0,
+        attribute.array?.constructor?.name || "array",
+      ].join(":"))
+      .join(",");
+    const signature = [
+      object.material.uuid,
+      geometry.index ? "indexed" : "non-indexed",
+      attributeSignature,
+    ].join("|");
+    if (!batches.has(signature)) batches.set(signature, []);
+    batches.get(signature).push(object);
+  });
+
+  let renderedMeshes = sourceMeshes.length;
+  let mergedMeshes = 0;
+  let mergedSourceMeshes = 0;
+  let mergeFailures = 0;
+  batches.forEach((meshes) => {
+    if (meshes.length < 2) return;
+    const geometries = meshes.map((mesh) => {
+      const relativeMatrix = new THREE.Matrix4().multiplyMatrices(rootInverse, mesh.matrixWorld);
+      return mesh.geometry.clone().applyMatrix4(relativeMatrix);
+    });
+    const mergedGeometry = mergeGeometries(geometries, false);
+    geometries.forEach((geometry) => geometry.dispose());
+    if (!mergedGeometry) {
+      mergeFailures += 1;
+      return;
+    }
+
+    const mergedMesh = new THREE.Mesh(mergedGeometry, meshes[0].material);
+    mergedMesh.name = `building-batch:${meshes[0].material.name || "material"}`;
+    mergedMesh.castShadow = meshes.some((mesh) => mesh.castShadow);
+    mergedMesh.receiveShadow = meshes.some((mesh) => mesh.receiveShadow);
+    model.add(mergedMesh);
+    meshes.forEach((mesh) => {
+      mesh.parent?.remove(mesh);
+      mesh.geometry.dispose();
+    });
+    renderedMeshes -= meshes.length - 1;
+    mergedMeshes += 1;
+    mergedSourceMeshes += meshes.length;
+  });
+
+  buildingBatchDiagnostics.sourceMeshes += sourceMeshes.length;
+  buildingBatchDiagnostics.renderedMeshes += renderedMeshes;
+  buildingBatchDiagnostics.mergedMeshes += mergedMeshes;
+  buildingBatchDiagnostics.mergedSourceMeshes += mergedSourceMeshes;
+  buildingBatchDiagnostics.mergeFailures += mergeFailures;
+  renderer.domElement.dataset.buildingBatchDiagnostics = JSON.stringify(buildingBatchDiagnostics);
+}
+
 const streetAssetDiagnostics = {
   expected: parkingVehicleSpots.length + curatedPropSpots.length,
   placed: 0,
@@ -1056,51 +1202,78 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       const windowsLit = styleRandom() < 0.7; // 7割くらいの建物は点灯、残りは消灯で暗いまま
 
       const bodyTexture = preset.tex === "brick" ? brickTexture : preset.tex === "panel" ? panelTexture : null;
+      const windowTexture = windowTextureCache[
+        (idx + Math.floor(styleRandom() * windowTextureCache.length)) % windowTextureCache.length
+      ];
+      const buildingMaterials = new Map();
 
-      model.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = layout.blockIndex >= 6 || layout.blockIndex === 4;
-          o.receiveShadow = true;
-          const matName = (o.material && o.material.name) || "";
-          o.material = o.material.clone();
+      function customizeBuildingMaterial(sourceMaterial) {
+        const matName = sourceMaterial?.name || "";
+        const category = matName === "window" || matName === "trim"
+          ? "window"
+          : matName === "door"
+            ? "door"
+            : matName === "border"
+              ? "border"
+              : "body";
+        const cacheKey = [
+          category,
+          matName,
+          sourceMaterial?.map?.uuid || "no-map",
+          sourceMaterial?.transparent ? "transparent" : "opaque",
+        ].join("|");
+        if (buildingMaterials.has(cacheKey)) return buildingMaterials.get(cacheKey);
 
-          if (matName === "window" || matName === "trim") {
-            // 窓は1棟ごとに個別の点灯パターンをテクスチャで持たせる（マスごとに点灯/消灯がバラバラになる）
-            const winTex = windowTextureCache[(idx + Math.floor(styleRandom() * windowTextureCache.length)) % windowTextureCache.length];
-            o.material.map = winTex;
-            o.material.emissiveMap = winTex;
-            o.material.color.set(0xffffff);
-            o.material.emissive = new THREE.Color(0xffffff);
-            o.material.emissiveIntensity = windowsLit ? 1.1 : 0.15;
-            o.material.roughness = 0.34;
-            o.material.metalness = 0.08;
-          } else if (matName === "door") {
-            o.material.color.setHex(preset.door);
-            o.material.normalMap = surfaceMaps.metal.normalMap;
-            o.material.roughnessMap = surfaceMaps.metal.roughnessMap;
-            o.material.normalScale.set(0.12, 0.12);
-            o.material.roughness = 0.58;
-            o.material.metalness = 0.32;
-          } else {
-            // 本体（border, _defaultMat等）: プリセット色＋テクスチャ（レンガ/パネル目地）＋
-            // メッシュごとの色相・彩度・明るさのばらつきで、のっぺりした単色を避ける
-            const base = matName === "border" ? preset.trim : preset.base;
-            const c = new THREE.Color(base);
-            c.offsetHSL(
-              (styleRandom() - 0.5) * 0.04,
-              (styleRandom() - 0.5) * 0.15,
-              (styleRandom() - 0.5) * 0.14
-            );
-            o.material.color.copy(c);
-            if (bodyTexture) o.material.map = bodyTexture;
-            o.material.normalMap = surfaceMaps.facade.normalMap;
-            o.material.roughnessMap = surfaceMaps.facade.roughnessMap;
-            o.material.normalScale.set(bodyTexture ? 0.055 : 0.025, bodyTexture ? 0.055 : 0.025);
-            o.material.roughness = bodyTexture ? 0.9 : 0.78;
-          }
-          o.material.needsUpdate = true;
+        const material = sourceMaterial.clone();
+        if (category === "window") {
+          // 窓の点灯模様は棟ごとに共有し、細かな窓メッシュをまとめ描画できるようにする。
+          material.map = windowTexture;
+          material.emissiveMap = windowTexture;
+          material.color.set(0xffffff);
+          material.emissive = new THREE.Color(0xffffff);
+          material.emissiveIntensity = windowsLit ? 1.1 : 0.15;
+          material.roughness = 0.34;
+          material.metalness = 0.08;
+        } else if (category === "door") {
+          material.color.setHex(preset.door);
+          material.normalMap = surfaceMaps.metal.normalMap;
+          material.roughnessMap = surfaceMaps.metal.roughnessMap;
+          material.normalScale.set(0.12, 0.12);
+          material.roughness = 0.58;
+          material.metalness = 0.32;
+        } else {
+          // 建物間の個体差は維持しつつ、同じ棟の同種部品はマテリアルを共有する。
+          const base = category === "border" ? preset.trim : preset.base;
+          const color = new THREE.Color(base);
+          color.offsetHSL(
+            (styleRandom() - 0.5) * 0.04,
+            (styleRandom() - 0.5) * 0.15,
+            (styleRandom() - 0.5) * 0.14
+          );
+          material.color.copy(color);
+          if (bodyTexture) material.map = bodyTexture;
+          material.normalMap = surfaceMaps.facade.normalMap;
+          material.roughnessMap = surfaceMaps.facade.roughnessMap;
+          material.normalScale.set(bodyTexture ? 0.055 : 0.025, bodyTexture ? 0.055 : 0.025);
+          material.roughness = bodyTexture ? 0.9 : 0.78;
+        }
+        material.needsUpdate = true;
+        buildingMaterials.set(cacheKey, material);
+        return material;
+      }
+
+      model.traverse((object) => {
+        if (!object.isMesh) return;
+        object.castShadow = layout.blockIndex >= 6 || layout.blockIndex === 4;
+        object.receiveShadow = true;
+        if (Array.isArray(object.material)) {
+          object.material = object.material.map(customizeBuildingMaterial);
+        } else {
+          object.material = customizeBuildingMaterial(object.material);
         }
       });
+      splitMultiMaterialBuildingMeshes(model);
+      compactStaticBuildingMeshes(model);
       scene.add(model);
 
       const finalBox = new THREE.Box3().setFromObject(model);
@@ -1513,6 +1686,50 @@ function updateCamera(dt) {
 const fpsEl = document.getElementById("fps");
 let frameCount = 0;
 let fpsAccum = 0;
+let lastSceneDiagnosticsBuildingCount = -1;
+
+function updateSceneGraphDiagnostics() {
+  const diagnostics = {
+    meshes: 0,
+    instancedMeshes: 0,
+    skinnedMeshes: 0,
+    materialSlots: 0,
+    geometryGroups: 0,
+    estimatedMainPassCalls: 0,
+    estimatedShadowPassCalls: 0,
+    shadowCastingLights: 0,
+    topDrawCallMeshes: [],
+  };
+  scene.traverse((object) => {
+    if (object.isLight && object.castShadow) diagnostics.shadowCastingLights += 1;
+    if (!object.isMesh || !object.visible) return;
+    diagnostics.meshes += 1;
+    if (object.isInstancedMesh) diagnostics.instancedMeshes += 1;
+    if (object.isSkinnedMesh) diagnostics.skinnedMeshes += 1;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const drawUnits = Array.isArray(object.material)
+      ? Math.max(1, object.geometry.groups.length)
+      : 1;
+    diagnostics.materialSlots += materials.length;
+    diagnostics.geometryGroups += object.geometry.groups.length;
+    diagnostics.estimatedMainPassCalls += drawUnits;
+    if (drawUnits > 1) {
+      diagnostics.topDrawCallMeshes.push({
+        name: object.name || "(unnamed)",
+        parent: object.parent?.name || "(unnamed)",
+        drawUnits,
+        materialSlots: materials.length,
+        groups: object.geometry.groups.length,
+        skinned: object.isSkinnedMesh,
+      });
+    }
+    if (object.castShadow) diagnostics.estimatedShadowPassCalls += drawUnits;
+  });
+  diagnostics.topDrawCallMeshes.sort((left, right) => right.drawUnits - left.drawUnits);
+  diagnostics.topDrawCallMeshes = diagnostics.topDrawCallMeshes.slice(0, 20);
+  renderer.domElement.dataset.sceneGraphDiagnostics = JSON.stringify(diagnostics);
+}
+
 const visualQa = createVisualQa({ renderer, camera });
 
 // ---------- ループ ----------
@@ -1528,6 +1745,11 @@ function loop(now) {
     visualQa.applyFixedCamera();
   }
   if (mixer) mixer.update(dt);
+  const buildingsPlaced = Number(renderer.domElement.dataset.buildingsPlaced || 0);
+  if (visualQa.enabled && buildingsPlaced !== lastSceneDiagnosticsBuildingCount) {
+    lastSceneDiagnosticsBuildingCount = buildingsPlaced;
+    updateSceneGraphDiagnostics();
+  }
   renderer.render(scene, camera);
   visualQa.afterRender(now);
 
