@@ -429,6 +429,7 @@ export function createJapaneseCityDetails({
   ];
   weedPositions.forEach(([x, z], index) => {
     const weed = new THREE.Mesh(new THREE.PlaneGeometry(0.38 + (index % 3) * 0.1, 0.55), weedMaterial);
+    weed.userData.playerSolid = false;
     weed.position.set(x, curbHeight + 0.28, z);
     weed.rotation.y = index * 0.83;
     details.add(weed);
@@ -474,7 +475,7 @@ export function createJapaneseCityDetails({
   details.updateMatrixWorld(true);
   let obstacleIndex = 0;
   details.traverse((object) => {
-    if (!object.isMesh || object.isInstancedMesh) return;
+    if (!object.isMesh || object.isInstancedMesh || object.userData.playerSolid === false) return;
     const box = new THREE.Box3().setFromObject(object);
     const isRoadSurfaceDetail = box.max.y <= curbHeight + 0.08;
     const isSafelyOverhead = box.min.y >= 2.2;
@@ -497,5 +498,5 @@ export function createJapaneseCityDetails({
   const canvas = document.querySelector("canvas");
   if (canvas) canvas.dataset.cityDetailDiagnostics = JSON.stringify(cityDetailDiagnostics);
 
-  return { details, cityHalfWidth, cityHalfDepth };
+  return { details, cityHalfWidth, cityHalfDepth, diagnostics: cityDetailDiagnostics };
 }

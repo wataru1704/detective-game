@@ -1,8 +1,8 @@
 // 3D試作: Kenney City Kit（CC0）＋人型キャラ（Quaternius Adventurer, CC0）で街を作る
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260822m";
-import { createVisualQa } from "./visual-qa.js?v=20260822u";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260905a";
+import { createVisualQa } from "./visual-qa.js?v=20260905a";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822n";
 import { createProceduralSurfaceMaps } from "./surface-maps.js?v=20260822l";
@@ -402,6 +402,48 @@ function makeSidewalkTexture() {
 
 const CURB_HEIGHT = 0.14;
 const SIDEWALK_SIZE = BLOCK_SIZE;
+const playerCollisionBoxes = [];
+const playerMovementDiagnostics = {
+  collisionBoxes: playerCollisionBoxes,
+  blockedAttempts: 0,
+  curbHeight: CURB_HEIGHT,
+  roadGroundHeight: 0,
+  sidewalkGroundHeight: CURB_HEIGHT,
+};
+window.__playerMovementDiagnostics = playerMovementDiagnostics;
+
+function registerPlayerCollisionBox(label, bounds) {
+  const entry = {
+    label,
+    minX: bounds.minX ?? bounds.min?.x,
+    maxX: bounds.maxX ?? bounds.max?.x,
+    minZ: bounds.minZ ?? bounds.min?.z,
+    maxZ: bounds.maxZ ?? bounds.max?.z,
+  };
+  if (![entry.minX, entry.maxX, entry.minZ, entry.maxZ].every(Number.isFinite)) {
+    console.warn("Invalid player collision bounds", { label, bounds });
+    return null;
+  }
+  playerCollisionBoxes.push(entry);
+  renderer.domElement.dataset.playerCollisionBoxes = String(playerCollisionBoxes.length);
+  return entry;
+}
+
+function groundHeightAt(x, z) {
+  const halfSidewalk = SIDEWALK_SIZE / 2;
+  for (let row = 0; row < gridRows; row++) {
+    for (let col = 0; col < GRID_COLS; col++) {
+      const centerX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
+      const centerZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
+      if (
+        x >= centerX - halfSidewalk && x <= centerX + halfSidewalk &&
+        z >= centerZ - halfSidewalk && z <= centerZ + halfSidewalk
+      ) return CURB_HEIGHT;
+    }
+  }
+  return 0;
+}
+
 const sidewalkNormalMap = surfaceMaps.concrete.normalMap.clone();
 const sidewalkRoughnessMap = surfaceMaps.concrete.roughnessMap.clone();
 sidewalkNormalMap.repeat.set(12, 12);
@@ -484,6 +526,12 @@ OPEN_LOT_INDICES.forEach((index, order) => {
       stop.position.set(layout.x + offset, CURB_HEIGHT + 0.09, layout.z + (layout.slotInBlock < 3 ? 1.35 : -1.35));
       stop.castShadow = true;
       scene.add(stop);
+      registerPlayerCollisionBox(`wheel-stop:${index}:${offset}`, {
+        minX: stop.position.x - 0.36,
+        maxX: stop.position.x + 0.36,
+        minZ: stop.position.z - 0.08,
+        maxZ: stop.position.z + 0.08,
+      });
     });
     parkingVehicleSpots.push({
       asset: order % 2 === 0 ? "car_sedan" : "car_van",
@@ -646,7 +694,6 @@ window.__crosswalkDiagnostics = crosswalkDiagnostics;
 renderer.domElement.dataset.crosswalkDiagnostics = JSON.stringify(crosswalkDiagnostics);
 
 const loader = new GLTFLoader();
-const buildingBoxes = []; // 当たり判定用（world座標のAABB）
 const cameraOccluderBoxes = []; // 追従カメラを壁の手前へ止める建物専用AABB
 
 const streetAssetDiagnostics = {
@@ -675,7 +722,7 @@ realisticStreetAssets.vehicleBounds.forEach((bounds, index) => {
     new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ)
   );
   recordRoadsideObstacle(`detailed-vehicle:${bounds.type}:${index}`, box, new THREE.Vector3());
-  buildingBoxes.push({ minX: bounds.minX, maxX: bounds.maxX, minZ: bounds.minZ, maxZ: bounds.maxZ });
+  registerPlayerCollisionBox(`vehicle:${bounds.type}:${index}`, bounds);
 });
 realisticStreetAssets.vegetationBounds.forEach((bounds, index) => {
   const box = new THREE.Box3(
@@ -683,6 +730,15 @@ realisticStreetAssets.vegetationBounds.forEach((bounds, index) => {
     new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ)
   );
   recordRoadsideObstacle(`urban-vegetation:${index}`, box, new THREE.Vector3());
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerZ = (bounds.minZ + bounds.maxZ) / 2;
+  const planterRadius = 0.4;
+  registerPlayerCollisionBox(`planter:${index}`, {
+    minX: centerX - planterRadius,
+    maxX: centerX + planterRadius,
+    minZ: centerZ - planterRadius,
+    maxZ: centerZ + planterRadius,
+  });
 });
 
 // ---------- 街灯（車道灯として現実的な高さにそろえる） ----------
@@ -699,6 +755,13 @@ function addStreetlight(x, z, rotation, addLocalLight) {
   streetlightSystem.add({ x, z, rotationY: rotation, addLocalLight });
   renderer.domElement.dataset.streetlights = String(streetlightSystem.count);
   const poleRadius = 0.075;
+  const baseRadius = 0.14;
+  registerPlayerCollisionBox(`streetlight:${x}:${z}`, {
+    minX: x - baseRadius,
+    maxX: x + baseRadius,
+    minZ: z - baseRadius,
+    maxZ: z + baseRadius,
+  });
   recordRoadsideObstacle(
     `streetlight:${x}:${z}`,
     new THREE.Box3(
@@ -720,7 +783,7 @@ for (let row = 0; row < gridRows; row++) {
     addStreetlight(x, z, side > 0 ? Math.PI : 0, index % 9 === 0);
   }
 }
-createJapaneseCityDetails({
+const japaneseCityDetails = createJapaneseCityDetails({
   THREE,
   scene,
   gridCols: GRID_COLS,
@@ -730,6 +793,9 @@ createJapaneseCityDetails({
   curbHeight: CURB_HEIGHT,
   openLotIndices: [],
   surfaceMaps,
+});
+japaneseCityDetails.diagnostics.obstacles.forEach((bounds) => {
+  registerPlayerCollisionBox(`city-detail:${bounds.label}`, bounds);
 });
 
 
@@ -953,7 +1019,7 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
     minX: layout.x - w / 2, maxX: layout.x + w / 2,
     minZ: layout.z - d / 2, maxZ: layout.z + d / 2,
   };
-  buildingBoxes.push(boxEntry);
+  registerPlayerCollisionBox(`building:${idx}`, boxEntry);
   cameraOccluderBoxes.push(boxEntry);
 
   loader.load(
@@ -1152,7 +1218,7 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
 const player = new THREE.Object3D();
 const spawnX = -CELL_SIZE / 2;
 const spawnZ = ((gridRows - 1) / 2) * CELL_SIZE + 3.0;
-player.position.set(spawnX, 0, spawnZ);
+player.position.set(spawnX, groundHeightAt(spawnX, spawnZ), spawnZ);
 scene.add(player);
 
 let PLAYER_RADIUS = 0.3; // モデル読み込み後に実測値へ更新
@@ -1210,7 +1276,7 @@ function setAction(action) {
 }
 
 function isBlocked(x, z) {
-  return buildingBoxes.some(
+  return playerCollisionBoxes.some(
     (b) =>
       x + PLAYER_RADIUS > b.minX &&
       x - PLAYER_RADIUS < b.maxX &&
@@ -1218,6 +1284,23 @@ function isBlocked(x, z) {
       z - PLAYER_RADIUS < b.maxZ
   );
 }
+
+function updatePlayerMovementDiagnostics() {
+  const groundHeight = groundHeightAt(player.position.x, player.position.z);
+  playerMovementDiagnostics.position = {
+    x: Number(player.position.x.toFixed(3)),
+    y: Number(player.position.y.toFixed(3)),
+    z: Number(player.position.z.toFixed(3)),
+  };
+  playerMovementDiagnostics.groundHeight = groundHeight;
+  playerMovementDiagnostics.collisionBoxCount = playerCollisionBoxes.length;
+  renderer.domElement.dataset.playerPosition = JSON.stringify(playerMovementDiagnostics.position);
+  renderer.domElement.dataset.playerGroundHeight = groundHeight.toFixed(3);
+  renderer.domElement.dataset.playerCollisionBoxes = String(playerCollisionBoxes.length);
+  renderer.domElement.dataset.playerBlockedAttempts = String(playerMovementDiagnostics.blockedAttempts);
+}
+
+updatePlayerMovementDiagnostics();
 
 // ---------- 入力 ----------
 const keys = {};
@@ -1297,6 +1380,8 @@ function updatePlayer(dt) {
   // 入力(forward/strafe)を、視点の回転(cameraYaw)に合わせてワールド座標に変換する
   let forwardInput = 0;
   let strafeInput = 0;
+  const p = player.position;
+  p.y = groundHeightAt(p.x, p.z);
   if (keys["ArrowUp"] || keys["w"]) forwardInput += 1;
   if (keys["ArrowDown"] || keys["s"]) forwardInput -= 1;
   if (keys["ArrowRight"] || keys["d"]) strafeInput += 1;
@@ -1309,6 +1394,7 @@ function updatePlayer(dt) {
 
   if (forwardInput === 0 && strafeInput === 0) {
     setAction(idleAction);
+    updatePlayerMovementDiagnostics();
     return;
   }
 
@@ -1329,10 +1415,23 @@ function updatePlayer(dt) {
   dx *= PLAYER_SPEED * dt;
   dz *= PLAYER_SPEED * dt;
 
-  const p = player.position;
   let moved = false;
-  if (!isBlocked(p.x + dx, p.z)) { p.x += dx; moved = true; }
-  if (!isBlocked(p.x, p.z + dz)) { p.z += dz; moved = true; }
+  let blockedThisFrame = false;
+  if (!isBlocked(p.x + dx, p.z)) {
+    p.x += dx;
+    moved = true;
+  } else {
+    blockedThisFrame = true;
+  }
+  if (!isBlocked(p.x, p.z + dz)) {
+    p.z += dz;
+    moved = true;
+  } else {
+    blockedThisFrame = true;
+  }
+  if (blockedThisFrame) playerMovementDiagnostics.blockedAttempts += 1;
+  p.y = groundHeightAt(p.x, p.z);
+  updatePlayerMovementDiagnostics();
 
   if (moved) {
     player.rotation.y = Math.atan2(dx, dz) + PLAYER_ROTATION_OFFSET;
