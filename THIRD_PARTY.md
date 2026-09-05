@@ -6,7 +6,7 @@
 - Source: https://www.kenney.nl/assets/city-kit-suburban
 - License: Creative Commons Zero (CC0 1.0)
 - License URL: https://creativecommons.org/publicdomain/zero/1.0/
-- Files used: assets/suburban_a.glb, suburban_c.glb, suburban_f.glb, suburban_h.glb, suburban_k.glb, suburban_n.glb, suburban_r.glb, suburban_u.glb, suburban_fence_low.glb, suburban_planter.glb
+- Files used: assets/suburban_a.glb, suburban_c.glb, suburban_f.glb, suburban_h.glb, suburban_k.glb, suburban_n.glb, suburban_r.glb, suburban_u.glb, suburban_planter.glb
 
 ## City Tour
 
@@ -35,11 +35,3 @@
 - Source archive SHA-256: `10063BC74BCFA9E7ABB0790F083BFD42E42B5E5C6446745D52EA718CDC627AE0`
 - Files used: assets/vehicle-realistic-car.fbx, assets/vehicle-realistic-pickup.fbx, assets/vehicle-realistic-compact.fbx
 - Audit note: the OpenGameArt distribution page explicitly marks the pack CC0. The downloaded archive contains models but no separate license file, so the source URL and archive hash are recorded here.
-
-## Kenney City Kit Roads 2.1
-
-- Creator: Kenney
-- Source: https://www.kenney.nl/assets/city-kit-roads
-- License: Creative Commons Zero (CC0 1.0)
-- License URL: https://creativecommons.org/publicdomain/zero/1.0/
-- Files used: assets/road_dumpster.glb, assets/road_barrier.glb
