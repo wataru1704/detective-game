@@ -99,6 +99,85 @@ function makeVehicleMaterial(THREE, original, bodyColor, isWheel) {
   return new THREE.MeshStandardMaterial({ color: 0x303235, roughness: 0.68, metalness: 0.28 });
 }
 
+function collapseRepeatedMaterialGroups(THREE, root) {
+  const replacements = [];
+  let drawCallsBefore = 0;
+
+  root.traverse((object) => {
+    if (!object.isMesh || object.isSkinnedMesh) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const groups = object.geometry.groups;
+    const drawUnits = Array.isArray(object.material) ? Math.max(1, groups.length) : 1;
+    drawCallsBefore += drawUnits;
+    if (!Array.isArray(object.material) || groups.length <= materials.length) return;
+    if (Object.keys(object.geometry.morphAttributes || {}).length > 0) return;
+
+    const rangesByMaterial = new Map();
+    groups.forEach((group) => {
+      const materialIndex = group.materialIndex || 0;
+      if (!materials[materialIndex]) return;
+      if (!rangesByMaterial.has(materialIndex)) rangesByMaterial.set(materialIndex, []);
+      rangesByMaterial.get(materialIndex).push({ start: group.start, count: group.count });
+    });
+    if (rangesByMaterial.size >= groups.length) return;
+    replacements.push({ object, materials, rangesByMaterial });
+  });
+
+  replacements.forEach(({ object, materials, rangesByMaterial }) => {
+    const sourceGeometry = object.geometry;
+    const sourceIndex = sourceGeometry.index;
+    const vertexCount = sourceGeometry.attributes.position.count;
+    const IndexArray = sourceIndex?.array?.constructor || (vertexCount > 65535 ? Uint32Array : Uint16Array);
+
+    rangesByMaterial.forEach((ranges, materialIndex) => {
+      const indexCount = ranges.reduce((sum, range) => sum + range.count, 0);
+      const indices = new IndexArray(indexCount);
+      let writeOffset = 0;
+      ranges.forEach((range) => {
+        for (let offset = 0; offset < range.count; offset++) {
+          indices[writeOffset++] = sourceIndex ? sourceIndex.getX(range.start + offset) : range.start + offset;
+        }
+      });
+
+      const partGeometry = new THREE.BufferGeometry();
+      Object.entries(sourceGeometry.attributes).forEach(([name, attribute]) => {
+        partGeometry.setAttribute(name, attribute);
+      });
+      partGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
+      partGeometry.computeBoundingBox();
+      partGeometry.computeBoundingSphere();
+
+      const material = materials[materialIndex];
+      const part = new THREE.Mesh(partGeometry, material);
+      part.name = `${object.name || "vehicle-part"}:${material?.name || materialIndex}`;
+      part.position.copy(object.position);
+      part.quaternion.copy(object.quaternion);
+      part.scale.copy(object.scale);
+      part.matrix.copy(object.matrix);
+      part.matrixAutoUpdate = object.matrixAutoUpdate;
+      part.castShadow = object.castShadow;
+      part.receiveShadow = object.receiveShadow;
+      part.renderOrder = object.renderOrder;
+      object.parent.add(part);
+    });
+
+    object.parent.remove(object);
+  });
+
+  let drawCallsAfter = 0;
+  root.traverse((object) => {
+    if (!object.isMesh) return;
+    drawCallsAfter += Array.isArray(object.material)
+      ? Math.max(1, object.geometry.groups.length)
+      : 1;
+  });
+  return {
+    drawCallsBefore,
+    drawCallsAfter,
+    meshesCollapsed: replacements.length,
+  };
+}
+
 function createVehicles({ THREE, scene, placements, groundY, diagnostics }) {
   const assignments = new Map();
   const bounds = [];
@@ -154,9 +233,6 @@ function createVehicles({ THREE, scene, placements, groundY, diagnostics }) {
         const rawBox = new THREE.Box3().setFromObject(source);
         const rawSize = new THREE.Vector3();
         rawBox.getSize(rawSize);
-        const sourceMeshCount = [];
-        source.traverse((child) => { if (child.isMesh) sourceMeshCount.push(child); });
-
         assetAssignments.forEach(({ placement, spec, index }) => {
           const vehicle = source.clone(true);
           vehicle.name = `RealisticVehicle:${spec.type}:${index}`;
@@ -183,12 +259,16 @@ function createVehicles({ THREE, scene, placements, groundY, diagnostics }) {
             child.castShadow = false;
             child.receiveShadow = true;
           });
+          const compactedVehicle = collapseRepeatedMaterialGroups(THREE, vehicle);
+          diagnostics.vehicleMaterialGroupsBefore += compactedVehicle.drawCallsBefore;
+          diagnostics.vehicleMaterialGroupsAfter += compactedVehicle.drawCallsAfter;
+          diagnostics.vehicleMeshesCollapsed += compactedVehicle.meshesCollapsed;
+          diagnostics.vehicleModelDrawCalls += compactedVehicle.drawCallsAfter;
+          diagnostics.drawCalls += compactedVehicle.drawCallsAfter;
           scene.add(vehicle);
         });
 
         diagnostics.modelsLoaded += 1;
-        diagnostics.vehicleModelDrawCalls += sourceMeshCount.length * assetAssignments.length;
-        diagnostics.drawCalls += sourceMeshCount.length * assetAssignments.length;
         document.querySelector("canvas")?.setAttribute("data-realistic-street-assets", JSON.stringify(diagnostics));
       },
       undefined,
@@ -309,6 +389,9 @@ export function createRealisticStreetAssets({ THREE, scene, vehiclePlacements, v
     modelsLoaded: 0,
     modelFailures: [],
     vehicleModelDrawCalls: 0,
+    vehicleMaterialGroupsBefore: 0,
+    vehicleMaterialGroupsAfter: 0,
+    vehicleMeshesCollapsed: 0,
     drawCalls: 0,
     foliageTexture: "assets/Textures/urban-tree-foliage.png",
   };
