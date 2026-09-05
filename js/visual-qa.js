@@ -1,12 +1,12 @@
 const QA_VIEWS = [
   { name: "spawn-main-road", position: [-12, 2.65, 38], target: [-12, 1.25, 23] },
   { name: "central-approach", position: [-12, 3.05, 7], target: [-12, 1.25, -12] },
-  { name: "residential-frontage", position: [-5, 2.5, 18], target: [6, 1.45, 18] },
+  { name: "residential-frontage", position: [-7, 2.5, 12], target: [6, 1.45, 6] },
   { name: "shopping-street", position: [34, 2.7, -12], target: [13, 1.35, -12] },
   { name: "parking-and-cars", position: [34.5, 2.8, 24.5], target: [29.7, 1.0, 18.5] },
   { name: "signal-crosswalk", position: [12, 11, -23], target: [12, 0.15, -12] },
-  { name: "service-alley", position: [1.5, 2.35, 8], target: [1.5, 1.05, -7] },
-  { name: "city-edge-horizon", position: [31, 3.2, 24], target: [57, 2.0, 24] },
+  { name: "service-alley", position: [-8, 2.35, 0], target: [8, 1.05, 0] },
+  { name: "city-edge-transition", position: [42, 3.2, 12], target: [29, 2.0, 12] },
 ];
 
 function numberParam(params, name, fallback, min, max) {
