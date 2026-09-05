@@ -497,13 +497,6 @@ OPEN_LOT_INDICES.forEach((index, order) => {
       z: layout.z + (layout.slotInBlock < 3 ? 1.82 : -1.82),
       rotation: order * 0.63,
     });
-  } else {
-    const front = layout.slotInBlock < 3 ? -1 : 1;
-    curatedPropSpots.push(
-      { asset: "road_dumpster", x: layout.x + 1.35, z: layout.z - front * 0.82, rotation: Math.PI / 2 },
-      { asset: "road_barrier", x: layout.x - 0.65, z: layout.z + front * 1.72, rotation: 0 },
-      { asset: "suburban_fence_low", x: layout.x - 1.85, z: layout.z - front * 0.5, rotation: Math.PI / 2 }
-    );
   }
 });
 
@@ -690,94 +683,6 @@ realisticStreetAssets.vegetationBounds.forEach((bounds, index) => {
     new THREE.Vector3(bounds.maxX, bounds.maxY, bounds.maxZ)
   );
   recordRoadsideObstacle(`urban-vegetation:${index}`, box, new THREE.Vector3());
-});
-
-function loadPlacedAsset(assetName, placements, targetSize, fitAxis = "horizontal", collidable = false, targetDimensions = null) {
-  if (placements.length === 0) return;
-  loader.load(
-    "assets/" + assetName + ".glb",
-    (gltf) => {
-      const source = gltf.scene;
-      const rawBox = new THREE.Box3().setFromObject(source);
-      const rawSize = new THREE.Vector3();
-      rawBox.getSize(rawSize);
-      if (targetDimensions) {
-        source.scale.set(
-          targetDimensions.x / rawSize.x,
-          targetDimensions.y / rawSize.y,
-          targetDimensions.z / rawSize.z
-        );
-      } else {
-        const fitDimension = fitAxis === "height" ? rawSize.y : Math.max(rawSize.x, rawSize.z);
-        if (!Number.isFinite(fitDimension) || fitDimension <= 0) {
-          streetAssetDiagnostics.failed.push(assetName);
-          return;
-        }
-        source.scale.setScalar(targetSize / fitDimension);
-      }
-      source.updateMatrixWorld(true);
-
-      placements.forEach((placement, index) => {
-        const model = source.clone(true);
-        model.name = "StreetAsset:" + assetName + ":" + index;
-        model.rotation.y = placement.rotation || 0;
-        model.updateMatrixWorld(true);
-
-        const rotatedBox = new THREE.Box3().setFromObject(model);
-        const center = new THREE.Vector3();
-        rotatedBox.getCenter(center);
-        model.position.set(
-          placement.x - center.x,
-          CURB_HEIGHT - rotatedBox.min.y,
-          placement.z - center.z
-        );
-        model.updateMatrixWorld(true);
-        model.traverse((object) => {
-          if (!object.isMesh) return;
-          object.castShadow = assetName.startsWith("car_");
-          object.receiveShadow = true;
-        });
-        let finalBox = new THREE.Box3().setFromObject(model);
-        const movement = roadCorridorsIntersectingBox(finalBox).length > 0
-          ? moveObjectOutsideRoadways(model, finalBox)
-          : new THREE.Vector3();
-        finalBox = new THREE.Box3().setFromObject(model);
-        recordRoadsideObstacle(`street-asset:${assetName}:${index}`, finalBox, movement);
-        scene.add(model);
-
-        if (collidable) {
-          buildingBoxes.push({
-            minX: finalBox.min.x,
-            maxX: finalBox.max.x,
-            minZ: finalBox.min.z,
-            maxZ: finalBox.max.z,
-          });
-        }
-        streetAssetDiagnostics.placed += 1;
-        renderer.domElement.dataset.streetAssetsPlaced = String(streetAssetDiagnostics.placed);
-      });
-    },
-    undefined,
-    (error) => {
-      streetAssetDiagnostics.failed.push(assetName);
-      renderer.domElement.dataset.streetAssetsFailed = String(streetAssetDiagnostics.failed.length);
-      console.warn("Street asset load failed: " + assetName, error);
-    }
-  );
-}
-
-
-[
-  { name: "road_dumpster", target: 1.55, fit: "horizontal" },
-  { name: "road_barrier", target: 1.5, fit: "horizontal" },
-  { name: "suburban_fence_low", target: 2.6, fit: "horizontal" },
-].forEach((spec) => {
-  loadPlacedAsset(
-    spec.name,
-    curatedPropSpots.filter((spot) => spot.asset === spec.name),
-    spec.target,
-    spec.fit
-  );
 });
 
 // ---------- 街灯（車道灯として現実的な高さにそろえる） ----------
