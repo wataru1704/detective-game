@@ -2,7 +2,7 @@
 import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
 import { GLTFLoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "https://unpkg.com/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
-import { createJapaneseCityDetails } from "./city-details.js?v=20260906e";
+import { createJapaneseCityDetails } from "./city-details.js?v=20260906f";
 import { createVisualQa } from "./visual-qa.js?v=20260906c";
 import { createJapaneseAtmosphere } from "./atmosphere.js?v=20260822g";
 import { createBuildingDetailSystem } from "./building-details.js?v=20260822n";
@@ -54,7 +54,8 @@ const COMMERCIAL_TOWER_SLOTS = new Set([
   38, 42, 44, 45, 47, 48,
 ]);
 const MEASURED_TALL_BUILDINGS = [
-  "skyscraperB", "skyscraperC", "skyscraperD", "skyscraperF",
+  // A/B/E/F は平面が正方形で、既存扉を1.8mへ合わせても街区内へ収めやすい。
+  "skyscraperA", "skyscraperB", "skyscraperE", "skyscraperF",
 ];
 const MEASURED_LOW_RISE_BUILDINGS = [
   "low_wideA", "low_wideB",
@@ -62,12 +63,25 @@ const MEASURED_LOW_RISE_BUILDINGS = [
   "large_buildingC", "large_buildingD", "large_buildingE", "large_buildingG",
 ];
 
+// 元モデルの扉比率が極端に小さい低層棟だけ、実寸に近い既存扉を持つモデルへ交換する。
+// 後付けの扉メッシュは使わず、建物そのものを差し替える。
+const BUILDING_MODEL_OVERRIDES = new Map([
+  [19, "large_buildingB"],
+  [31, "large_buildingB"],
+  [39, "small_buildingA"],
+  [40, "small_buildingC"],
+  [46, "large_buildingB"],
+  [52, "small_buildingA"],
+  [53, "small_buildingF"],
+]);
+
 // 以前は8mの敷地を6m道路が一軒ごとに囲み、街の約67%が道路だった。
-// 18m四方の街区を6m道路で区切り、各街区に6つの小敷地をまとめる。
+// 20.4m四方の街区を6m道路で区切り、各街区に6つの小敷地をまとめる。
 const GRID_COLS = 3;
 const GRID_ROWS = 3;
-const CELL_SIZE = 24;
-const BLOCK_SIZE = 18;
+// 入口を実寸へ合わせた建物が重ならないよう街区を広げる。道路幅6mは維持する。
+const CELL_SIZE = 26.4;
+const BLOCK_SIZE = 20.4;
 const MIN_BUILDING_FOOTPRINT = 3.3;
 const MAX_BUILDING_FOOTPRINT = 5.15;
 const BUILDINGS_PER_BLOCK = 6;
@@ -88,13 +102,12 @@ function getBuildingMaxHeight(name) {
 const BUILDING_FACADE_SIGN_HEIGHT = 2.5;
 const BUILDING_ROOF_UNIT_MARGIN = 0.8;
 const BUILDING_SCALE_MULTIPLIER = 1.24;
-// 全棟を同率で広げると道路・隣家へ触れるため、余白の少ない区画だけ小さく抑える。
-const BUILDING_SCALE_LIMITS = new Map([[2, 1.19], [7, 1.20], [8, 1.20], [24, 1.20]]);
-// 建物をXYZ同率で拡大したまま、接近する2組だけ敷地内で数十cmずらして間隔を保つ。
-const BUILDING_POSITION_OFFSETS = new Map([[8, { x: 0.26, z: 0 }], [21, { x: -0.22, z: 0 }], [24, { x: 0, z: 0.12 }]]);
-const MIN_ORIGINAL_DOOR_HEIGHT = 1.85;
-const MAX_SELECTIVE_DOOR_SCALE = 1.16;
-const BUILDING_SCALE_REVISION = "20260822-original-door-selective-scale";
+const BUILDING_SCALE_LIMITS = new Map();
+const BUILDING_POSITION_OFFSETS = new Map();
+const MIN_REALISTIC_DOOR_HEIGHT = 1.80;
+const MAX_LOW_RISE_ENTRANCE_SCALE = 1.30;
+const MAX_COMMERCIAL_ENTRANCE_SCALE = 1.56;
+const BUILDING_SCALE_REVISION = "20260906-real-door-whole-building-scale";
 
 function measureOriginalDoorHeight(model) {
   model.updateMatrixWorld(true);
@@ -276,10 +289,10 @@ function createBuildingLayout(name, index) {
   const row = Math.floor(blockIndex / GRID_COLS);
   const blockX = (col - (GRID_COLS - 1) / 2) * CELL_SIZE;
   const blockZ = (row - (gridRows - 1) / 2) * CELL_SIZE;
-  const localColumns = [-5.65, 0, 5.65];
+  const localColumns = [-6.55, 0, 6.55];
   const localX = localColumns[slotInBlock % 3];
   const isSouthSide = slotInBlock >= 3;
-  const localZ = isSouthSide ? 5.35 : -5.35;
+  const localZ = isSouthSide ? 6.15 : -6.15;
 
   let minimumSize = MIN_BUILDING_FOOTPRINT;
   let maximumSize = MAX_BUILDING_FOOTPRINT;
@@ -287,7 +300,7 @@ function createBuildingLayout(name, index) {
   if (name.startsWith("low_wide")) minimumSize = 4.55;
 
   const footprint = minimumSize + random() * (maximumSize - minimumSize);
-  const offsetX = (random() * 2 - 1) * 0.32;
+  const offsetX = (random() * 2 - 1) * 0.03;
   const offsetZ = (random() * 2 - 1) * 0.25;
   const positionOffset = BUILDING_POSITION_OFFSETS.get(index) ?? { x: 0, z: 0 };
   // 建物正面を外周道路へ向け、10%だけ横向きの古い建物を混ぜる。
@@ -304,6 +317,7 @@ function createBuildingLayout(name, index) {
 }
 
 function buildingNameForSlot(index) {
+  if (BUILDING_MODEL_OVERRIDES.has(index)) return BUILDING_MODEL_OVERRIDES.get(index);
   const blockIndex = Math.floor(index / BUILDINGS_PER_BLOCK);
   if (COMMERCIAL_TOWER_SLOTS.has(index)) {
     return MEASURED_TALL_BUILDINGS[(index + blockIndex) % MEASURED_TALL_BUILDINGS.length];
@@ -1138,8 +1152,10 @@ renderer.domElement.dataset.buildingsExpected = String(TOTAL_CITY_SLOTS - OPEN_L
 renderer.domElement.dataset.buildingsPlaced = "0";
 renderer.domElement.dataset.buildingScaleMultiplier = String(BUILDING_SCALE_MULTIPLIER);
 renderer.domElement.dataset.buildingScaleRevision = BUILDING_SCALE_REVISION;
-renderer.domElement.dataset.originalDoorMinimumHeight = String(MIN_ORIGINAL_DOOR_HEIGHT);
-renderer.domElement.dataset.maximumSelectiveDoorScale = String(MAX_SELECTIVE_DOOR_SCALE);
+renderer.domElement.dataset.minimumRealisticDoorHeight = String(MIN_REALISTIC_DOOR_HEIGHT);
+renderer.domElement.dataset.maximumLowRiseEntranceScale = String(MAX_LOW_RISE_ENTRANCE_SCALE);
+renderer.domElement.dataset.maximumCommercialEntranceScale = String(MAX_COMMERCIAL_ENTRANCE_SCALE);
+renderer.domElement.dataset.buildingModelOverrides = JSON.stringify(Object.fromEntries(BUILDING_MODEL_OVERRIDES));
 renderer.domElement.dataset.buildingPositionOffsets = JSON.stringify(Object.fromEntries(BUILDING_POSITION_OFFSETS));
 renderer.domElement.dataset.buildingScaleLimits = JSON.stringify(Object.fromEntries(BUILDING_SCALE_LIMITS));
 renderer.domElement.dataset.facadeSignsPlaced = "0";
@@ -1184,11 +1200,14 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
       model.scale.setScalar(scaleFactor);
       model.rotation.y = layout.rotation;
       const originalDoorHeight = measureOriginalDoorHeight(model);
-      // 高層モデルの door マテリアルには外壁パネルも含まれるため、
-      // 街路から見える低層建物の既存扉だけを全体スケールの判定に使う。
-      const doorScaleEligible = !COMMERCIAL_TOWER_SLOTS.has(idx);
-      const selectiveDoorScale = doorScaleEligible && originalDoorHeight !== null && originalDoorHeight < MIN_ORIGINAL_DOOR_HEIGHT
-        ? Math.min(MIN_ORIGINAL_DOOR_HEIGHT / originalDoorHeight, MAX_SELECTIVE_DOOR_SCALE)
+      // 扉だけを引き伸ばさず、既存扉が1.8mへ届くまで建物全体をXYZ同率で拡大する。
+      // 極端な低層モデルは上の明示マップで交換済み。上限は街区内に収まる倍率。
+      const doorScaleEligible = originalDoorHeight !== null;
+      const maximumEntranceScale = COMMERCIAL_TOWER_SLOTS.has(idx)
+        ? MAX_COMMERCIAL_ENTRANCE_SCALE
+        : MAX_LOW_RISE_ENTRANCE_SCALE;
+      const selectiveDoorScale = doorScaleEligible && originalDoorHeight < MIN_REALISTIC_DOOR_HEIGHT
+        ? Math.min(MIN_REALISTIC_DOOR_HEIGHT / originalDoorHeight, maximumEntranceScale)
         : 1;
       if (selectiveDoorScale > 1) model.scale.multiplyScalar(selectiveDoorScale);
       const finalDoorHeight = originalDoorHeight === null ? null : originalDoorHeight * selectiveDoorScale;
@@ -1298,8 +1317,10 @@ Array.from({ length: TOTAL_CITY_SLOTS }, (_, index) => index).forEach((idx) => {
         scaleFactor: scaleFactor * selectiveDoorScale,
         originalDoorHeight,
         doorScaleEligible,
+        maximumEntranceScale,
         selectiveDoorScale,
         finalDoorHeight,
+        modelReplaced: BUILDING_MODEL_OVERRIDES.has(idx),
       });
       recordRoadsideObstacle(`building:${idx}`, finalBox);
       renderer.domElement.dataset.buildingsPlaced = String(buildingDiagnostics.length);
