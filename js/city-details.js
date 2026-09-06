@@ -450,10 +450,11 @@ export function createJapaneseCityDetails({
   });
 
   // ガードレールは主要道路の一部だけに置き、道路沿いの単調さを避ける。
+  const guardrailZ = cellSize / 2 + blockSize / 4;
   [-1, 1].forEach((side) => {
-    [-18, 18].forEach((z) => {
+    [-guardrailZ, guardrailZ].forEach((z) => {
       for (let segment = -1; segment <= 1; segment++) {
-        const segmentZ = z + segment * 1.75;
+        const segmentZ = z + segment * 1.6;
         addBox(
           new THREE.Vector3(0.09, 0.78, 0.09),
           new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight + 0.39, segmentZ),
@@ -461,7 +462,7 @@ export function createJapaneseCityDetails({
         );
       }
       addBox(
-        new THREE.Vector3(0.08, 0.2, 3.65),
+        new THREE.Vector3(0.08, 0.2, 3.3),
         new THREE.Vector3(mainRoadX + side * (roadHalfWidth + 0.35), curbHeight + 0.58, z),
         galvanizedMaterial
       );
